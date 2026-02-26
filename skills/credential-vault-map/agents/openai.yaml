@@ -1,4 +1,4 @@
 interface:
   display_name: "Credential Vault Map"
-  short_description: "Locate and store credentials safely"
-  default_prompt: "Use $credential-vault-map to find where credentials are stored and save this secret in the secure vault."
+  short_description: "Bitwarden-first credential mapping"
+  default_prompt: "Use $credential-vault-map. First run readiness check, then auto-handle search/create using Bitwarden commands from the skill scripts. Keep secrets out of git and use metadata-only local pointers."
