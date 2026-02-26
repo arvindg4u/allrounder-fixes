@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Save Fix"
+  short_description: "Save local fixes to GitHub in new folder"
+  default_prompt: "Use $github-save-fix-folder to save this local fix into the target GitHub repo in a new folder."
