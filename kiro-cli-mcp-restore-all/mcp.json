@@ -1,0 +1,75 @@
+{
+  "mcpServers": {
+    "notion": {
+      "type": "http",
+      "url": "https://mcp.notion.com/mcp",
+      "disabled": false
+    },
+    "pythonanywhere": {
+      "type": "stdio",
+      "command": "/root/.venvs/pythonanywhere-mcp/bin/pythonanywhere-mcp-server",
+      "env": {
+        "API_TOKEN": "1a6e18b630b6e390127e593716d1a61f4d8f1ba4",
+        "LOGNAME": "arvinddigitaltwin",
+        "PYTHONANYWHERE_SITE": "www.pythonanywhere.com"
+      },
+      "disabled": false
+    },
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "disabled": false
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer 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"
+      },
+      "disabled": false,
+      "metadata": {
+        "username": "arvindg4u"
+      }
+    },
+    "openaiDeveloperDocs": {
+      "type": "http",
+      "url": "https://developers.openai.com/mcp",
+      "disabled": false
+    },
+    "googleDeveloperKnowledge": {
+      "type": "http",
+      "url": "https://developerknowledge.googleapis.com/mcp",
+      "headers": {
+        "X-Goog-Api-Key": "AIzaSyDI9nUFq3UXdYlpHRton3Myudi_pVUHJds"
+      },
+      "disabled": false
+    },
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp",
+      "disabled": false
+    },
+    "sequentialthinking": {
+      "type": "http",
+      "url": "https://remote.mcpservers.org/sequentialthinking/mcp",
+      "disabled": false
+    },
+    "microsoft-learn": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp",
+      "disabled": false
+    },
+    "vercel": {
+      "type": "http",
+      "url": "https://mcp.vercel.com",
+      "disabled": false,
+      "metadata": {
+        "teamId": "team_07DRcZhnZX03Yw1PJIDbaEO8"
+      }
+    }
+  }
+}
