@@ -1,0 +1,4 @@
+interface:
+  display_name: "Credential Vault Map"
+  short_description: "Locate and store credentials safely"
+  default_prompt: "Use $credential-vault-map to find where credentials are stored and save this secret in the secure vault."
