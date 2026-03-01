@@ -1,0 +1,500 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.2.27",
+    "lastTouchedAt": "2026-03-01T10:16:25.833Z"
+  },
+  "env": {},
+  "wizard": {
+    "lastRunAt": "2026-02-28T05:44:29.878Z",
+    "lastRunVersion": "2026.2.27",
+    "lastRunCommand": "configure",
+    "lastRunMode": "local"
+  },
+  "update": {
+    "channel": "dev"
+  },
+  "auth": {
+    "profiles": {
+      "google-gemini-cli:karvind0085@gmail.com": {
+        "provider": "google-gemini-cli",
+        "mode": "oauth",
+        "email": "karvind0085@gmail.com"
+      },
+      "google-antigravity:karvind0085@gmail.com": {
+        "provider": "google-antigravity",
+        "mode": "oauth",
+        "email": "karvind0085@gmail.com"
+      },
+      "google-antigravity:rvndkaswan3@gmail.com": {
+        "provider": "google-antigravity",
+        "mode": "oauth",
+        "email": "rvndkaswan3@gmail.com"
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "custom-api-mistral-ai": {
+        "baseUrl": "https://api.mistral.ai/v1/",
+        "apiKey": "REDACTED",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "mistral-large-latest",
+            "name": "mistral-large-latest (Custom Provider)",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 256000,
+            "maxTokens": 8000
+          },
+          {
+            "id": "codestral-2508",
+            "name": "codestral-2508 (Custom Provider)",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 256000,
+            "maxTokens": 8000
+          },
+          {
+            "id": "mistral-medium-latest",
+            "name": "mistral-medium-latest (Custom Provider)",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 256000,
+            "maxTokens": 8000
+          }
+        ]
+      },
+      "vllm-qwen": {
+        "baseUrl": "http://127.0.0.1:8002/v1",
+        "apiKey": "REDACTED",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "qwen2.5-coder:1.5b",
+            "name": "Qwen2.5 Coder 1.5B (vLLM)",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 32768,
+            "maxTokens": 4096
+          }
+        ]
+      },
+      "vllm-llama": {
+        "baseUrl": "http://127.0.0.1:8003/v1",
+        "apiKey": "REDACTED",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "llama3.2:1b",
+            "name": "Llama 3.2 1B (vLLM)",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 8192,
+            "maxTokens": 4096
+          }
+        ]
+      },
+      "vllm-deepseek": {
+        "baseUrl": "http://127.0.0.1:8001/v1",
+        "apiKey": "REDACTED",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "deepseek-r1:1.5b",
+            "name": "DeepSeek R1 1.5B (vLLM)",
+            "reasoning": true,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 32768,
+            "maxTokens": 4096
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "google-antigravity/claude-opus-4-6-thinking",
+        "fallbacks": [
+          "custom-api-mistral-ai/mistral-large-latest",
+          "custom-api-mistral-ai/codestral-2508",
+          "custom-api-mistral-ai/mistral-medium-latest",
+          "vllm-qwen/qwen2.5-coder:1.5b",
+          "vllm-llama/llama3.2:1b",
+          "vllm-deepseek/deepseek-r1:1.5b",
+          "google/gemini-3.1-pro-preview",
+          "google/gemini-3.1-pro-preview-customtools",
+          "google-gemini-cli/gemini-3.1-pro-preview",
+          "google/gemini-3-flash-preview",
+          "google/gemini-3-pro-preview",
+          "google-antigravity/claude-sonnet-4-5-thinking",
+          "google-antigravity/claude-sonnet-4-5",
+          "google-antigravity/gemini-3-flash",
+          "google-antigravity/gemini-3-pro-high",
+          "google-antigravity/claude-opus-4-5-thinking",
+          "google-antigravity/gpt-oss-120b-medium"
+        ]
+      },
+      "models": {
+        "custom-api-mistral-ai/mistral-large-latest": {
+          "alias": "mistral-large"
+        },
+        "custom-api-mistral-ai/codestral-2508": {
+          "alias": "codestral-2508"
+        },
+        "custom-api-mistral-ai/mistral-medium-latest": {
+          "alias": "mistral-medium"
+        },
+        "vllm-qwen/qwen2.5-coder:1.5b": {
+          "alias": "qwen-vllm"
+        },
+        "vllm-llama/llama3.2:1b": {
+          "alias": "llama-vllm"
+        },
+        "vllm-deepseek/deepseek-r1:1.5b": {
+          "alias": "deepseek-vllm"
+        },
+        "google/gemini-3.1-pro-preview": {},
+        "google/gemini-3.1-pro-preview-customtools": {},
+        "google-gemini-cli/gemini-3.1-pro-preview": {},
+        "google/gemini-3-flash-preview": {},
+        "google/gemini-3-pro-preview": {},
+        "google-antigravity/claude-opus-4-6-thinking": {},
+        "google-antigravity/claude-sonnet-4-5-thinking": {},
+        "google-antigravity/claude-sonnet-4-5": {},
+        "google-antigravity/gemini-3-flash": {},
+        "google-antigravity/gemini-3-pro-high": {},
+        "google-antigravity/claude-opus-4-5-thinking": {},
+        "google-antigravity/gpt-oss-120b-medium": {}
+      },
+      "workspace": "/root/.openclaw/workspace",
+      "userTimezone": "Asia/Kolkata",
+      "envelopeTimezone": "Asia/Kolkata",
+      "memorySearch": {
+        "sources": [
+          "memory",
+          "sessions"
+        ],
+        "experimental": {
+          "sessionMemory": true
+        },
+        "provider": "gemini",
+        "remote": {
+          "apiKey": "REDACTED"
+        },
+        "model": "gemini-embedding-001",
+        "sync": {
+          "sessions": {
+            "deltaBytes": 1000,
+            "deltaMessages": 5
+          }
+        }
+      },
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "1h"
+      },
+      "compaction": {
+        "mode": "safeguard",
+        "reserveTokensFloor": 20000,
+        "memoryFlush": {
+          "enabled": true,
+          "softThresholdTokens": 4000,
+          "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store.",
+          "systemPrompt": "Session nearing compaction. Store durable memories now."
+        }
+      },
+      "heartbeat": {
+        "every": "30m",
+        "activeHours": {
+          "start": "08:00",
+          "end": "23:59",
+          "timezone": "Asia/Kolkata"
+        },
+        "includeReasoning": false,
+        "target": "last",
+        "prompt": "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly in read-only mode: do not edit/write files during heartbeat. If nothing needs attention, reply HEARTBEAT_OK.",
+        "ackMaxChars": 300,
+        "suppressToolErrorWarnings": true
+      },
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 1,
+        "maxSpawnDepth": 2
+      },
+      "sandbox": {
+        "sessionToolsVisibility": "spawned"
+      }
+    },
+    "list": [
+      {
+        "id": "main",
+        "subagents": {
+          "allowAgents": [
+            "yt-orchestrator",
+            "yt-summarizer"
+          ]
+        }
+      },
+      {
+        "id": "yt-summarizer",
+        "name": "yt-summarizer",
+        "workspace": "/root/.openclaw/workspace-yt-summarizer",
+        "agentDir": "/root/.openclaw/agents/yt-summarizer/agent"
+      },
+      {
+        "id": "yt-orchestrator",
+        "name": "yt-orchestrator",
+        "workspace": "/root/.openclaw/workspace-yt-orchestrator",
+        "agentDir": "/root/.openclaw/agents/yt-orchestrator/agent",
+        "subagents": {
+          "allowAgents": [
+            "yt-summarizer"
+          ]
+        }
+      }
+    ]
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "boot-md": {
+          "enabled": true
+        },
+        "bootstrap-extra-files": {
+          "enabled": true
+        },
+        "command-logger": {
+          "enabled": true
+        },
+        "session-memory": {
+          "enabled": true,
+          "llmSlug": false
+        }
+      }
+    }
+  },
+  "channels": {
+    "defaults": {
+      "heartbeat": {
+        "showOk": false,
+        "showAlerts": true,
+        "useIndicator": true
+      }
+    },
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "pairing",
+      "botToken": "REDACTED",
+      "groupPolicy": "allowlist",
+      "streaming": "partial",
+      "retry": {
+        "attempts": 6,
+        "minDelayMs": 500,
+        "maxDelayMs": 60000,
+        "jitter": 0.2
+      }
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "REDACTED"
+    },
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "calendar.add",
+        "contacts.add",
+        "reminders.add"
+      ]
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "npm"
+    },
+    "entries": {
+      "notion": {
+        "apiKey": "REDACTED"
+      },
+      "youtube-google-api": {
+        "apiKey": "REDACTED"
+      },
+      "google-workspace-api": {
+        "config": {
+          "oauth": {
+            "clientId": "753523557683-5q1s2jd90hduci402iter1vrkcpj8gf9.apps.googleusercontent.com",
+            "clientSecret": "REDACTED",
+            "redirectUri": "http://127.0.0.1",
+            "refreshToken": "REDACTED",
+            "scopes": [
+              "openid",
+              "email",
+              "profile",
+              "https://www.googleapis.com/auth/userinfo.email",
+              "https://www.googleapis.com/auth/userinfo.profile",
+              "https://www.googleapis.com/auth/gmail.send",
+              "https://www.googleapis.com/auth/gmail.modify",
+              "https://www.googleapis.com/auth/calendar",
+              "https://www.googleapis.com/auth/drive",
+              "https://www.googleapis.com/auth/contacts",
+              "https://www.googleapis.com/auth/spreadsheets",
+              "https://www.googleapis.com/auth/documents",
+              "https://mail.google.com/",
+              "https://www.googleapis.com/auth/gmail.settings.basic",
+              "https://www.googleapis.com/auth/gmail.settings.sharing",
+              "https://www.googleapis.com/auth/tasks",
+              "https://www.googleapis.com/auth/forms.body",
+              "https://www.googleapis.com/auth/forms.responses.readonly",
+              "https://www.googleapis.com/auth/presentations",
+              "https://www.googleapis.com/auth/script.projects",
+              "https://www.googleapis.com/auth/script.deployments",
+              "https://www.googleapis.com/auth/script.processes",
+              "https://www.googleapis.com/auth/drive.activity.readonly",
+              "https://www.googleapis.com/auth/drive.labels",
+              "https://www.googleapis.com/auth/chat.spaces",
+              "https://www.googleapis.com/auth/chat.messages",
+              "https://www.googleapis.com/auth/chat.memberships",
+              "https://www.googleapis.com/auth/chat.spaces.readonly",
+              "https://www.googleapis.com/auth/chat.messages.readonly",
+              "https://www.googleapis.com/auth/chat.memberships.readonly",
+              "https://www.googleapis.com/auth/chat.users.readstate",
+              "https://www.googleapis.com/auth/chat.users.readstate.readonly",
+              "https://www.googleapis.com/auth/admin.directory.user",
+              "https://www.googleapis.com/auth/admin.directory.user.readonly",
+              "https://www.googleapis.com/auth/admin.directory.group",
+              "https://www.googleapis.com/auth/admin.directory.group.readonly",
+              "https://www.googleapis.com/auth/directory.readonly",
+              "https://www.googleapis.com/auth/classroom.courses",
+              "https://www.googleapis.com/auth/classroom.rosters",
+              "https://www.googleapis.com/auth/classroom.profile.emails",
+              "https://www.googleapis.com/auth/classroom.profile.photos",
+              "https://www.googleapis.com/auth/classroom.coursework.students",
+              "https://www.googleapis.com/auth/classroom.coursework.me",
+              "https://www.googleapis.com/auth/classroom.courseworkmaterials",
+              "https://www.googleapis.com/auth/classroom.announcements",
+              "https://www.googleapis.com/auth/classroom.topics",
+              "https://www.googleapis.com/auth/forms",
+              "https://www.googleapis.com/auth/cloud-platform",
+              "https://www.googleapis.com/auth/script.projects.readonly",
+              "https://www.googleapis.com/auth/script.deployments.readonly",
+              "https://www.googleapis.com/auth/script.metrics",
+              "https://www.googleapis.com/auth/script.scriptapp",
+              "https://www.googleapis.com/auth/script.external_request",
+              "https://www.googleapis.com/auth/script.send_mail",
+              "https://www.googleapis.com/auth/script.container.ui",
+              "https://www.googleapis.com/auth/forms.currentonly",
+              "https://www.googleapis.com/auth/groups",
+              "https://www.google.com/calendar/feeds",
+              "https://www.google.com/m8/feeds"
+            ]
+          }
+        }
+      },
+      "tavily-search": {
+        "apiKey": "REDACTED"
+      },
+      "firecrawl-fetch": {
+        "apiKey": "REDACTED"
+      }
+    }
+  },
+  "plugins": {
+    "allow": [
+      "core-rotation",
+      "telegram",
+      "google-antigravity-auth",
+      "google-gemini-cli-auth"
+    ],
+    "slots": {
+      "memory": "memory-core"
+    },
+    "entries": {
+      "telegram": {
+        "enabled": true
+      },
+      "google-gemini-cli-auth": {
+        "enabled": true
+      },
+      "google-antigravity-auth": {
+        "enabled": true
+      },
+      "core-rotation": {
+        "enabled": true
+      }
+    }
+  }
+}

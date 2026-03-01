@@ -1,0 +1,110 @@
+model = "gpt-5.3-codex"
+model_reasoning_effort = "high"
+sandbox_mode = "danger-full-access"
+approval_policy = "never"
+
+[projects."/root"]
+trust_level = "trusted"
+
+[projects."/root/.openclaw"]
+trust_level = "trusted"
+
+[projects."/root/DigitalTwin"]
+trust_level = "trusted"
+
+[projects."/root/codexia-android-pwa"]
+trust_level = "trusted"
+
+[mcp_servers.filesystem]
+command = "npx"
+args = [
+  "-y",
+  "@modelcontextprotocol/server-filesystem",
+  "/root",
+  "/root/.openclaw"
+]
+startup_timeout_sec = 60
+
+[mcp_servers.notion]
+type = "http"
+url = "https://mcp.notion.com/mcp"
+
+[mcp_servers.pythonanywhere]
+command = "/root/.venvs/pythonanywhere-mcp/bin/pythonanywhere-mcp-server"
+startup_timeout_sec = 60
+
+  [mcp_servers.pythonanywhere.env]
+  API_TOKEN = "REDACTED"
+  LOGNAME = "arvinddigitaltwin"
+  PYTHONANYWHERE_SITE = "www.pythonanywhere.com"
+
+[mcp_servers.context7]
+command = "npx"
+args = [ "-y", "@upstash/context7-mcp" ]
+startup_timeout_sec = 60
+
+[mcp_servers.github]
+type = "http"
+url = "https://api.githubcopilot.com/mcp/"
+startup_timeout_sec = 60
+
+  [mcp_servers.github.http_headers]
+  Authorization = "Bearer REDACTED"
+
+[mcp_servers.openaiDeveloperDocs]
+type = "http"
+url = "https://developers.openai.com/mcp"
+
+[mcp_servers.googleDeveloperKnowledge]
+type = "http"
+url = "https://developerknowledge.googleapis.com/mcp"
+
+  [mcp_servers.googleDeveloperKnowledge.http_headers]
+  X-Goog-Api-Key = "REDACTED"
+
+[mcp_servers.supabase]
+type = "http"
+url = "https://mcp.supabase.com/mcp"
+startup_timeout_sec = 60
+
+  [mcp_servers.supabase.http_headers]
+  Authorization = "Bearer REDACTED"
+
+[mcp_servers.sequentialthinking]
+type = "http"
+url = "https://remote.mcpservers.org/sequentialthinking/mcp"
+
+[mcp_servers.microsoft-learn]
+type = "http"
+url = "https://learn.microsoft.com/api/mcp"
+
+[mcp_servers.vercel]
+type = "http"
+url = "https://mcp.vercel.com"
+startup_timeout_sec = 60
+
+  [mcp_servers.vercel.http_headers]
+  Authorization = "Bearer REDACTED"
+
+[mcp_servers.fetchfetch]
+type = "http"
+url = "https://remote.mcpservers.org/fetch/mcp"
+
+[mcp_servers.render]
+type = "http"
+url = "https://mcp.render.com/mcp"
+startup_timeout_sec = 60
+
+  [mcp_servers.render.http_headers]
+  Authorization = "Bearer REDACTED"
+
+[features]
+use_linux_sandbox_bwrap = true
+multi_agent = true
+apps = true
+prevent_idle_sleep = true
+
+[notice]
+hide_full_access_warning = true
+hide_rate_limit_model_nudge = true
+
