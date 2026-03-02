@@ -1,0 +1,4 @@
+interface:
+  display_name: "Control CLI"
+  short_description: "Run alias, auth, inbound, and worker APIs from terminal with idempotent commands."
+  default_prompt: "Use the control CLI to inspect health, create/list aliases, and run mail worker for this project."
