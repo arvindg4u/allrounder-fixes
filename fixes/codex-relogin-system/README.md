@@ -15,6 +15,8 @@ Main behavior:
 2. It immediately starts login again.
 3. It detects the `https://auth.openai.com/...` URL from output.
 4. It copies the login link to clipboard when possible.
+5. It enforces single active login session using PID lock.
+6. Browser auto-open stays disabled by default.
 
 This gives a direct re-login experience.
 
@@ -27,6 +29,7 @@ This gives a direct re-login experience.
 - `cloginlink` -> starts web login and copies auth URL
 - `crelogin` -> force logout, then web login link flow
 - `crelogindev` -> force logout, then device-auth flow
+- `ckilllogin` -> stop active `crelogin` PID and clear lock
 
 ## Files
 
@@ -90,6 +93,10 @@ Clipboard note for WSL:
 - Script supports `clip.exe` if available.
 - If clipboard tools are unavailable, the login URL is printed so you can copy manually.
 
+Single-session note:
+- If one `crelogin` is already active, second run is blocked to prevent multi-tab/multi-browser opens.
+- Use `ckilllogin` only when a previous run is stuck.
+
 ## Shared auth location
 
 By default, helpers store auth/session at:
@@ -103,6 +110,24 @@ To change location, set before loading script:
 ```bash
 export CODEX_SHARED_HOME="$HOME/.codex-shared"
 source "$HOME/.config/codex/codex-auth-helpers.sh"
+```
+
+## Browser open policy (default: manual)
+
+Default behavior is manual open only:
+- `CODEX_AUTH_AUTO_OPEN=0` (default)
+- login URL is printed + copied, but browser is not auto-launched
+
+Optional auto-open mode:
+
+```bash
+export CODEX_AUTH_AUTO_OPEN=1
+```
+
+Optional custom browser command when auto-open is disabled:
+
+```bash
+export CODEX_AUTH_BROWSER_CMD=/bin/true
 ```
 
 ## Security notes
