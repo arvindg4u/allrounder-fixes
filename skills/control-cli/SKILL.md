@@ -26,8 +26,9 @@ npm run control -- <command> [options]
 
 1. Run `config:check` first to confirm base URL and env readiness.
 2. Run `health`.
-3. Run alias/auth/mail commands from [references/commands.md](references/commands.md).
-4. Use `--retries` and `--retry-delay-ms` for transient network issues.
+3. If `health` shows `fetch failed`, set `--base-url` or configure `.env.local` with `NEXT_PUBLIC_APP_URL`.
+4. Run alias/auth/mail commands from [references/commands.md](references/commands.md).
+5. Use `--retries` and `--retry-delay-ms` for transient network issues.
 
 ## Personal Mode vs Token Mode
 

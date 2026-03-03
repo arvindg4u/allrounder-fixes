@@ -189,12 +189,25 @@ function getNumberOption(options, key, defaultValue) {
 }
 
 function getBaseUrl(options) {
-  const baseUrl =
-    getStringOption(options, "base-url") ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    DEFAULT_APP_BASE_URL;
+  const explicitBaseUrl = getStringOption(options, "base-url");
+  if (explicitBaseUrl) {
+    return {
+      baseUrl: String(explicitBaseUrl).replace(/\/$/, ""),
+      source: "--base-url",
+    };
+  }
 
-  return String(baseUrl).replace(/\/$/, "");
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return {
+      baseUrl: String(process.env.NEXT_PUBLIC_APP_URL).replace(/\/$/, ""),
+      source: "NEXT_PUBLIC_APP_URL",
+    };
+  }
+
+  return {
+    baseUrl: DEFAULT_APP_BASE_URL,
+    source: "fallback",
+  };
 }
 
 function getRetryConfig(options) {
@@ -511,7 +524,8 @@ async function run() {
     process.exit(0);
   }
 
-  const baseUrl = getBaseUrl(options);
+  const baseUrlResolution = getBaseUrl(options);
+  const baseUrl = baseUrlResolution.baseUrl;
   const retry = getRetryConfig(options);
   const controlToken = getControlToken(options);
   const controlHeaders = controlToken ? { "x-control-token": controlToken } : {};
@@ -811,6 +825,12 @@ async function run() {
             CONTROL_IDEMPOTENCY_STORE:
               process.env.CONTROL_IDEMPOTENCY_STORE || getIdempotencyStorePath(),
           },
+          baseUrlSource: baseUrlResolution.source,
+          baseUrlResolveOrder: [
+            "--base-url",
+            "NEXT_PUBLIC_APP_URL",
+            DEFAULT_APP_BASE_URL,
+          ],
         },
       };
       break;
@@ -826,7 +846,22 @@ async function run() {
 }
 
 run().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+
+  if (message.toLowerCase().includes("fetch failed")) {
+    console.error("Base URL resolve order:");
+    console.error("1) --base-url");
+    console.error("2) NEXT_PUBLIC_APP_URL (env)");
+    console.error(`3) fallback ${DEFAULT_APP_BASE_URL}`);
+    console.error("Quick fix:");
+    console.error(
+      "npm run control -- health --base-url https://app.arvindlab.dedyn.io",
+    );
+    console.error("Permanent fix (.env.local):");
+    console.error("NEXT_PUBLIC_APP_URL=https://app.arvindlab.dedyn.io");
+  }
+
   printUsage();
   process.exit(1);
 });

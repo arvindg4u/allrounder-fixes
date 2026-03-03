@@ -20,6 +20,27 @@ npm run control -- aliases:create-random --owner-email rvndkaswan@gmail.com --de
 - `--retries <number>` default: `2`
 - `--retry-delay-ms <number>` default: `500`
 
+## Base URL Resolution
+
+Resolve order:
+1. `--base-url`
+2. `NEXT_PUBLIC_APP_URL` (env)
+3. fallback `http://localhost:3000`
+
+If local app run nahi ho rahi aur `--base-url`/env set nahi hai, to `health` me `fetch failed` aayega.
+
+Quick fix:
+
+```bash
+npm run control -- health --base-url https://app.arvindlab.dedyn.io
+```
+
+Permanent fix (`.env.local`):
+
+```bash
+NEXT_PUBLIC_APP_URL=https://app.arvindlab.dedyn.io
+```
+
 ## Command Matrix
 
 | Command | Required options | Optional options | API |
