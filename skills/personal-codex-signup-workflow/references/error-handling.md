@@ -34,7 +34,7 @@ Symptom:
 
 Action:
 
-1. Run `scripts/get_code_for_alias.sh --alias-email <alias> --max-tries 40 --sleep-secs 2`.
+1. Run `bash scripts/get_code_for_alias.sh --alias-email <alias> --max-tries 40 --sleep-secs 2`.
 2. If still missing, click `Resend email` once.
 3. Poll again.
 
@@ -58,12 +58,23 @@ Symptom:
 
 Action:
 
-1. Run `scripts/kill_stale_login.sh`.
+1. Run `bash scripts/kill_stale_login.sh`.
 2. Restart `crelogin`.
 
 ## 6) Alias Cleanup Before Restart
 
 When user asks fresh reset:
 
-1. Run `scripts/delete_all_aliases.sh --yes`.
+1. Run `bash scripts/delete_all_aliases.sh --yes`.
 2. Verify no aliases remain via control-cli list.
+
+## 7) Script Permission Denied After Reinstall
+
+Symptom:
+
+- Shell returns `Permission denied` while running `scripts/*.sh` directly.
+
+Action:
+
+1. Run scripts as `bash scripts/<name>.sh` (recommended default).
+2. Optional one-time fix: `chmod +x scripts/*.sh`.

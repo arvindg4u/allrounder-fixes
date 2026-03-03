@@ -3,7 +3,7 @@
 ## Preflight
 
 ```bash
-/home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/kill_stale_login.sh
+bash /home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/kill_stale_login.sh
 node /home/rvndk/.codex/skills/control-cli/scripts/control-cli.mjs health --base-url https://app.arvindlab.dedyn.io
 ```
 
@@ -12,17 +12,17 @@ node /home/rvndk/.codex/skills/control-cli/scripts/control-cli.mjs health --base
 ```bash
 crelogin
 cat /home/rvndk/.codex/.last-login-link
-/home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/create_alias.sh
+bash /home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/create_alias.sh
 ```
 
 ## OTP Polling
 
 ```bash
-/home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/get_code_for_alias.sh --alias-email app-xxxxxxxxxx@arvindlab.dedyn.io
+bash /home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/get_code_for_alias.sh --alias-email app-xxxxxxxxxx@arvindlab.dedyn.io
 ```
 
 ## Full Alias Cleanup (when requested)
 
 ```bash
-/home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/delete_all_aliases.sh --yes
+bash /home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/delete_all_aliases.sh --yes
 ```

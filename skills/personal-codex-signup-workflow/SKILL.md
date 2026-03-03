@@ -26,12 +26,12 @@ Use these defaults unless user explicitly overrides:
 ## Core Workflow (Run In Order)
 
 1. Preflight
-- Run `scripts/kill_stale_login.sh` to clear stale login listeners.
+- Run `bash scripts/kill_stale_login.sh` to clear stale login listeners.
 - Run `node /home/rvndk/.codex/skills/control-cli/scripts/control-cli.mjs health --base-url "$BASE_URL"`.
 - If health fails, stop and report the failure before browser actions.
 
 2. Optional hard reset aliases (only when requested)
-- Run `scripts/delete_all_aliases.sh --yes`.
+- Run `bash scripts/delete_all_aliases.sh --yes`.
 
 3. Start fresh login session
 - Run `crelogin` and keep session alive.
@@ -39,7 +39,7 @@ Use these defaults unless user explicitly overrides:
 - Open that exact URL in Playwright (do not start from generic `/log-in` URL when fresh state is needed).
 
 4. Create alias
-- Run `scripts/create_alias.sh`.
+- Run `bash scripts/create_alias.sh`.
 - Parse and store `alias_email` and `alias_id`.
 
 5. Signup browser flow
@@ -52,7 +52,7 @@ Use these defaults unless user explicitly overrides:
 
 6. OTP flow
 - Wait for email verification page.
-- Fetch OTP using `scripts/get_code_for_alias.sh --alias-email <alias_email>`.
+- Fetch OTP using `bash scripts/get_code_for_alias.sh --alias-email <alias_email>`.
 - Fill code and click `Continue`.
 
 7. About-you flow
@@ -94,6 +94,10 @@ If any of these errors appear, apply the exact recovery:
 - Stuck on extension/connect tab
   - Ensure Playwright is not running in extension mode.
   - Restart Playwright MCP session and re-open auth URL.
+
+- Permission denied on script execution after reinstall
+  - Run script with `bash scripts/<script-name>.sh`.
+  - Optionally fix once: `chmod +x scripts/*.sh`.
 
 See detailed troubleshooting: `references/error-handling.md`.
 
