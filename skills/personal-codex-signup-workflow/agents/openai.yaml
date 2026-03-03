@@ -1,0 +1,4 @@
+interface:
+  display_name: "Personal Signup Workflow"
+  short_description: "Automate personal Codex signup flow with alias + OTP handling"
+  default_prompt: "Run the full personal Codex signup workflow end-to-end with robust checks and retries."
