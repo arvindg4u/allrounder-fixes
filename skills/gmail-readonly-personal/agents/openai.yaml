@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gmail Readonly Personal"
+  short_description: "Read-only Gmail and OTP checks for personal inbox"
+  default_prompt: "Use $gmail-readonly-personal to authenticate once and fetch my latest OTP or inbox emails with read-only access."

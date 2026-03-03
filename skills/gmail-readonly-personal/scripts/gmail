@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_PY="$SKILL_DIR/.venv/bin/python"
+CLI="$SKILL_DIR/scripts/gmail_readonly_cli.py"
+
+if [[ ! -x "$VENV_PY" ]]; then
+  "$SKILL_DIR/scripts/setup_env.sh"
+fi
+
+exec "$VENV_PY" "$CLI" "$@"
