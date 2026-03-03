@@ -18,7 +18,7 @@ cat /home/rvndk/.codex/.last-login-link
 ## OTP Polling
 
 ```bash
-/ho=me/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/get_code_for_alias.sh --alias-email app-xxxxxxxxxx@arvindlab.dedyn.io
+/home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/get_code_for_alias.sh --alias-email app-xxxxxxxxxx@arvindlab.dedyn.io
 ```
 
 ## Full Alias Cleanup (when requested)
