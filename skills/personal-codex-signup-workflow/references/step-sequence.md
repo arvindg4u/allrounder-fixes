@@ -10,10 +10,19 @@ node /home/rvndk/.codex/skills/control-cli/scripts/control-cli.mjs health --base
 ## Fresh Login + Alias
 
 ```bash
+# Run in interactive TTY. Do NOT run crelogin with nohup or detached background.
 crelogin
+# Optional sanity check:
+lsof -i :1455 -sTCP:LISTEN -n -P
 cat /home/rvndk/.codex/.last-login-link
 bash /home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/create_alias.sh
 ```
+
+## About-You DOB Input Note
+
+- Birthday fields are contenteditable `spinbutton` controls.
+- If generic form fill fails, type/evaluate directly into month/day/year fields.
+- Submit with `Finish creating account`.
 
 ## OTP Polling
 

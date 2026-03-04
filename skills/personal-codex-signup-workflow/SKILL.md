@@ -34,7 +34,8 @@ Use these defaults unless user explicitly overrides:
 - Run `bash scripts/delete_all_aliases.sh --yes`.
 
 3. Start fresh login session
-- Run `crelogin` and keep session alive.
+- Run `crelogin` in an interactive TTY session and keep that session alive (do not use `nohup`, detached `&`, or one-shot non-interactive execution).
+- Confirm listener is active on `localhost:1455` before browser steps (optional check: `lsof -i :1455 -sTCP:LISTEN -n -P`).
 - Read latest auth URL from `/home/rvndk/.codex/.last-login-link`.
 - Open that exact URL in Playwright (do not start from generic `/log-in` URL when fresh state is needed).
 
@@ -58,7 +59,8 @@ Use these defaults unless user explicitly overrides:
 7. About-you flow
 - Fill random female American full name.
 - Fill DOB with age >= 20 (recommended year <= current_year - 20).
-- Click `Continue`.
+- Birthday controls are contenteditable `spinbutton`s. Use typing/evaluate on month/day/year fields if generic form-fill fails.
+- Click `Finish creating account`.
 
 8. Consent/finalization
 - If consent page appears (`Sign in to Codex with ChatGPT`), click `Continue`.
@@ -94,6 +96,16 @@ If any of these errors appear, apply the exact recovery:
 - Stuck on extension/connect tab
   - Ensure Playwright is not running in extension mode.
   - Restart Playwright MCP session and re-open auth URL.
+
+- `crelogin` started but no active listener on `localhost:1455`
+  - Do not use detached/background startup.
+  - Restart `crelogin` in interactive TTY and keep session open until callback success.
+  - Re-read `/home/rvndk/.codex/.last-login-link` and continue from step 5.
+
+- Playwright DOB fill error: `invalid option: expected one of ...` (spinbutton type)
+  - Fill only full name through standard form helper.
+  - Fill DOB `month/day/year` using typing or element evaluate on the `spinbutton` controls.
+  - Retry `Finish creating account`.
 
 - Permission denied on script execution after reinstall
   - Run script with `bash scripts/<script-name>.sh`.

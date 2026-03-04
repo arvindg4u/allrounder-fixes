@@ -61,14 +61,41 @@ Action:
 1. Run `bash scripts/kill_stale_login.sh`.
 2. Restart `crelogin`.
 
-## 6) Alias Cleanup Before Restart
+## 6) crelogin Started in Detached Mode (No Listener)
+
+Symptom:
+
+- `crelogin` command exits early when launched with `nohup`/detached background.
+- `lsof -i :1455 -sTCP:LISTEN -n -P` shows no active listener.
+
+Action:
+
+1. Start `crelogin` in an interactive TTY session.
+2. Keep the session open until the OAuth callback is completed.
+3. Read fresh URL from `/home/rvndk/.codex/.last-login-link`.
+4. Continue browser flow from signup step.
+
+## 7) DOB Fill Fails on About-You Screen
+
+Symptom:
+
+- Playwright form helper fails with: `invalid option: expected one of ...`.
+- Birthday fields do not update via generic `fill_form`.
+
+Action:
+
+1. Fill full name normally.
+2. Fill birthday month/day/year by typing into `spinbutton` controls (or element evaluate).
+3. Click `Finish creating account`.
+
+## 8) Alias Cleanup Before Restart
 
 When user asks fresh reset:
 
 1. Run `bash scripts/delete_all_aliases.sh --yes`.
 2. Verify no aliases remain via control-cli list.
 
-## 7) Script Permission Denied After Reinstall
+## 9) Script Permission Denied After Reinstall
 
 Symptom:
 
