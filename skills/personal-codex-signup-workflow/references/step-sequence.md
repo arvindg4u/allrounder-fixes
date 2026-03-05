@@ -61,13 +61,13 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\persona
 ### Linux/WSL
 
 ```bash
-bash /home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/get_code_for_alias.sh --alias-email app-xxxxxxxxxx@arvindlab.dedyn.io
+bash /home/rvndk/.codex/skills/personal-codex-signup-workflow/scripts/get_code_for_alias.sh --alias-email <alias_email>
 ```
 
 ### Windows
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\personal-codex-signup-workflow\scripts\windows\get_code_for_alias.ps1" -AliasEmail app-xxxxxxxxxx@arvindlab.dedyn.io
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\personal-codex-signup-workflow\scripts\windows\get_code_for_alias.ps1" -AliasEmail <alias_email>
 ```
 
 ## 5) Full Alias Cleanup (when requested)

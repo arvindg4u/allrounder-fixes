@@ -118,7 +118,7 @@ Expected wrapper commands after install:
 
 7. About-you flow
 - Fill random female American full name.
-- Fill DOB with age `>= 20` (recommended year `<= current_year - 20`).
+- Fill DOB with age `>= 20`.
 - Birthday controls are contenteditable `spinbutton`s. Use typing/evaluate on month/day/year fields if generic form-fill fails.
 - Click `Finish creating account`.
 
@@ -130,8 +130,8 @@ Expected wrapper commands after install:
 ## Random Data Rules
 
 - Password format: at least 12 chars with upper/lower/number/symbol.
-- Name pool (example set): `Emily Johnson`, `Sophia Miller`, `Olivia Davis`, `Ava Wilson`, `Mia Taylor`.
-- DOB examples (20+ safe): `1997-06-11`, `1998-07-14`, `1996-10-22`.
+- Generate full name randomly each run (do not use static sample lists).
+- Generate DOB randomly each run while keeping age `>= 20`.
 
 ## Mandatory Error Handling
 
