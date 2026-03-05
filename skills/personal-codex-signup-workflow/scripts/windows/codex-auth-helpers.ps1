@@ -200,7 +200,11 @@ function Invoke-LoginLinkBackground {
   Ensure-CodexDirs
 
   if ($DoLogout) {
-    [void](Invoke-CodexCommand -Args @('logout'))
+    try {
+      [void](Invoke-CodexCommand -Args @('logout'))
+    } catch {
+      # continue even if logout is non-interactive-unfriendly
+    }
   }
 
   $tmpDir = Join-Path $script:CodexHome 'tmp'
@@ -212,14 +216,17 @@ function Invoke-LoginLinkBackground {
   $outLog = Join-Path $tmpDir "crelogin-$stamp.out.log"
   $errLog = Join-Path $tmpDir "crelogin-$stamp.err.log"
   $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $args = @(
+  $psArgs = @(
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
     '-File', $PSCommandPath,
     'login_link'
-  ) + $ActionArgs
+  )
+  if ($ActionArgs) {
+    $psArgs += $ActionArgs
+  }
 
-  $proc = Start-Process -FilePath $ps -ArgumentList $args -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+  $proc = Start-Process -FilePath $ps -ArgumentList $psArgs -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
 
   Write-Output 'crelogin started in hidden background mode.'
   Write-Output "crelogin_pid=$($proc.Id)"

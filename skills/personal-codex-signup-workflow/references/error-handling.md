@@ -165,5 +165,5 @@ Action:
 
 1. Reinstall wrappers:
    - `powershell -ExecutionPolicy Bypass -File scripts/windows/install_wrappers.ps1`
-2. Confirm `%USERPROFILE%\.local\bin\crelogin.cmd` invokes `relogin_bg`.
+2. Confirm `%USERPROFILE%\.local\bin\crelogin.cmd` invokes `login_link_bg`.
 3. Run `crelogin` again; expected behavior is hidden background session with logs under `%USERPROFILE%\.codex\tmp\crelogin-*.out.log`.
