@@ -87,8 +87,8 @@ Expected wrapper commands after install:
 - Windows: `powershell -ExecutionPolicy Bypass -File scripts/windows/delete_all_aliases.ps1 -Yes`
 
 3. Start fresh login session
-- Run `crelogin` in an interactive TTY and keep session alive.
-- Do not use `nohup`, detached `&`, or one-shot non-interactive startup.
+- Linux/WSL: run `crelogin` in an interactive TTY and keep session alive.
+- Windows: run `crelogin` (updated wrapper starts hidden background login-link session; no extra visible CMD window required).
 - Confirm listener on `localhost:1455`:
   - Linux/WSL: `lsof -i :1455 -sTCP:LISTEN -n -P`
   - Windows: `netstat -ano | findstr :1455`
@@ -157,8 +157,8 @@ If any of these errors appear, apply the exact recovery:
   - Restart MCP and re-open the exact auth URL.
 
 - `crelogin` started but no active listener on `localhost:1455`
-  - Restart `crelogin` in interactive TTY.
-  - Keep session open until callback success.
+  - Linux/WSL: restart `crelogin` in interactive TTY and keep it open.
+  - Windows: run `crelogin` again (hidden background mode) and check logs from `%USERPROFILE%\.codex\tmp\crelogin-*.out.log`.
   - Re-read `.last-login-link` and continue from signup.
 
 - DOB fill error: `invalid option: expected one of ...` (spinbutton type)

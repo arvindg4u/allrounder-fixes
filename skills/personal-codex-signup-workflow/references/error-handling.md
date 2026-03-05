@@ -63,19 +63,20 @@ Action:
 1. Run side-specific stale cleanup:
    - Linux/WSL: `bash scripts/kill_stale_login.sh`
    - Windows: `powershell -ExecutionPolicy Bypass -File scripts/windows/kill_stale_login.ps1`
+   - If direct PowerShell invocation behaves unexpectedly, use `ckilllogin` wrapper fallback.
 2. Restart `crelogin` in that same side.
 
-## 6) crelogin Started in Detached Mode (No Listener)
+## 6) crelogin Started but No Listener
 
 Symptom:
 
-- `crelogin` command exits early when launched with `nohup`/detached background.
-- `lsof -i :1455 -sTCP:LISTEN -n -P` shows no active listener.
+- `crelogin` does not produce active listener (`localhost:1455`).
+- Link file does not refresh.
 
 Action:
 
-1. Start `crelogin` in an interactive TTY session.
-2. Keep the session open until the OAuth callback is completed.
+1. Linux/WSL: start `crelogin` in an interactive TTY and keep it open.
+2. Windows: run `crelogin` again (hidden background mode) and inspect `%USERPROFILE%\.codex\tmp\crelogin-*.out.log`.
 3. Read fresh URL from side-specific `.last-login-link`.
 4. Continue browser flow from signup step.
 
@@ -153,3 +154,16 @@ Action:
    - `BROWSER=cmd /c exit 0`
 3. Updated Windows wrapper first tries a WSL bridge (`~/.local/bin/cloginlink`) with browser disabled; this is the preferred no-auto-open path.
 4. If auto-open still persists after reinstall, continue signup flow from Linux/WSL side for link generation, then proceed with browser automation.
+
+## 13) Windows CMD Window Pops Up During `crelogin`
+
+Symptom:
+
+- Running `crelogin` opens an extra visible CMD window.
+
+Action:
+
+1. Reinstall wrappers:
+   - `powershell -ExecutionPolicy Bypass -File scripts/windows/install_wrappers.ps1`
+2. Confirm `%USERPROFILE%\.local\bin\crelogin.cmd` invokes `relogin_bg`.
+3. Run `crelogin` again; expected behavior is hidden background session with logs under `%USERPROFILE%\.codex\tmp\crelogin-*.out.log`.

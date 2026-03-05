@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('status','login','login_browser','logout','login_link','relogin','relogin_device','kill_login')]
+  [ValidateSet('status','login','login_browser','logout','login_link','login_link_bg','relogin','relogin_bg','relogin_device','kill_login')]
   [string]$Action,
   [Parameter(ValueFromRemainingArguments = $true)]
   [string[]]$ActionArgs
@@ -194,6 +194,42 @@ function Invoke-LoginLink {
   return $exitCode
 }
 
+function Invoke-LoginLinkBackground {
+  param([bool]$DoLogout = $false)
+
+  Ensure-CodexDirs
+
+  if ($DoLogout) {
+    [void](Invoke-CodexCommand -Args @('logout'))
+  }
+
+  $tmpDir = Join-Path $script:CodexHome 'tmp'
+  if (-not (Test-Path -LiteralPath $tmpDir)) {
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+  }
+
+  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+  $outLog = Join-Path $tmpDir "crelogin-$stamp.out.log"
+  $errLog = Join-Path $tmpDir "crelogin-$stamp.err.log"
+  $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  $args = @(
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', $PSCommandPath,
+    'login_link'
+  ) + $ActionArgs
+
+  $proc = Start-Process -FilePath $ps -ArgumentList $args -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+
+  Write-Output 'crelogin started in hidden background mode.'
+  Write-Output "crelogin_pid=$($proc.Id)"
+  Write-Output "crelogin_out_log=$outLog"
+  Write-Output "crelogin_err_log=$errLog"
+  Write-Output "link_file=$script:LastLinkFile"
+  Write-Output 'Use `Get-Content $env:USERPROFILE\.codex\.last-login-link` after a few seconds.'
+  return 0
+}
+
 function Invoke-KillLogin {
   if (Test-Path -LiteralPath $script:LockFile) {
     try {
@@ -246,10 +282,12 @@ switch ($Action) {
   'login_browser' { exit (Invoke-CodexCommand -Args @('login') -SuppressAutoOpen $true) }
   'logout' { exit (Invoke-CodexCommand -Args @('logout')) }
   'login_link' { exit (Invoke-LoginLink) }
+  'login_link_bg' { exit (Invoke-LoginLinkBackground) }
   'relogin' {
     [void](Invoke-CodexCommand -Args @('logout'))
     exit (Invoke-LoginLink)
   }
+  'relogin_bg' { exit (Invoke-LoginLinkBackground -DoLogout $true) }
   'relogin_device' {
     [void](Invoke-CodexCommand -Args @('logout'))
     exit (Invoke-CodexCommand -Args @('login','--device-auth'))
