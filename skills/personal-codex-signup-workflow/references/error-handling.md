@@ -9,7 +9,9 @@ Symptom:
 
 Action:
 
-1. Read fresh auth URL from `/home/rvndk/.codex/.last-login-link`.
+1. Read fresh auth URL from side-specific file:
+   - Linux/WSL: `/home/rvndk/.codex/.last-login-link`
+   - Windows: `%USERPROFILE%\.codex\.last-login-link`
 2. Navigate to that exact URL.
 3. Repeat signup steps from email entry.
 
@@ -22,8 +24,8 @@ Symptom:
 Action:
 
 1. Kill Edge processes:
-   - `cmd.exe /c taskkill /F /IM msedge.exe`
-   - `cmd.exe /c taskkill /F /IM msedgewebview2.exe`
+   - `taskkill /F /IM msedge.exe`
+   - `taskkill /F /IM msedgewebview2.exe`
 2. Re-run Playwright navigation.
 
 ## 3) OTP Missing
@@ -58,8 +60,10 @@ Symptom:
 
 Action:
 
-1. Run `bash scripts/kill_stale_login.sh`.
-2. Restart `crelogin`.
+1. Run side-specific stale cleanup:
+   - Linux/WSL: `bash scripts/kill_stale_login.sh`
+   - Windows: `powershell -ExecutionPolicy Bypass -File scripts/windows/kill_stale_login.ps1`
+2. Restart `crelogin` in that same side.
 
 ## 6) crelogin Started in Detached Mode (No Listener)
 
@@ -72,7 +76,7 @@ Action:
 
 1. Start `crelogin` in an interactive TTY session.
 2. Keep the session open until the OAuth callback is completed.
-3. Read fresh URL from `/home/rvndk/.codex/.last-login-link`.
+3. Read fresh URL from side-specific `.last-login-link`.
 4. Continue browser flow from signup step.
 
 ## 7) DOB Fill Fails on About-You Screen
@@ -92,7 +96,9 @@ Action:
 
 When user asks fresh reset:
 
-1. Run `bash scripts/delete_all_aliases.sh --yes`.
+1. Run side-specific alias cleanup:
+   - Linux/WSL: `bash scripts/delete_all_aliases.sh --yes`
+   - Windows: `powershell -ExecutionPolicy Bypass -File scripts/windows/delete_all_aliases.ps1 -Yes`
 2. Verify no aliases remain via control-cli list.
 
 ## 9) Script Permission Denied After Reinstall
@@ -105,3 +111,27 @@ Action:
 
 1. Run scripts as `bash scripts/<name>.sh` (recommended default).
 2. Optional one-time fix: `chmod +x scripts/*.sh`.
+
+## 10) Side Not Specified by User
+
+Symptom:
+
+- User asks for signup workflow but does not specify `windows` or `linux/wsl`.
+
+Action:
+
+1. Ask one short clarification question: `Signup Windows side karna hai ya Linux/WSL side?`
+2. Use only that side's commands for the rest of the run.
+
+## 11) Wrappers Missing on Target Side
+
+Symptom:
+
+- `crelogin`/`cstatus` commands are not found.
+
+Action:
+
+1. Install wrappers on selected side:
+   - Linux/WSL: `bash scripts/linux/install_wrappers.sh`
+   - Windows: `powershell -ExecutionPolicy Bypass -File scripts/windows/install_wrappers.ps1`
+2. Re-run `cstatus` to confirm wrapper availability.

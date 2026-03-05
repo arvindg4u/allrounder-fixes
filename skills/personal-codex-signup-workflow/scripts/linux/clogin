@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$HOME/.local/bin/codex-auth-helpers.sh"
+codex_auth_login "$@"
