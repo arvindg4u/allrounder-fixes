@@ -151,4 +151,5 @@ Action:
    - `NO_BROWSER=1`
    - `OPENAI_NO_BROWSER=1`
    - `BROWSER=cmd /c exit 0`
-3. If auto-open still persists, continue signup flow from Linux/WSL side for link generation, then proceed with browser automation.
+3. Updated Windows wrapper first tries a WSL bridge (`~/.local/bin/cloginlink`) with browser disabled; this is the preferred no-auto-open path.
+4. If auto-open still persists after reinstall, continue signup flow from Linux/WSL side for link generation, then proceed with browser automation.

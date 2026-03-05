@@ -139,11 +139,11 @@ function Invoke-LoginLink {
   $oldAutoOpen = $env:CODEX_AUTH_AUTO_OPEN
   $link = $null
   $exitCode = 0
+  $useWslBridge = $false
 
   try {
     Write-Output 'Browser auto-open is disabled (CODEX_AUTH_AUTO_OPEN=0).'
     Write-Output 'Link will only be printed/copied; open it manually when ready.'
-    Write-Output 'Using device-auth flow on Windows to guarantee manual link open only.'
 
     $env:CODEX_HOME = $script:CodexHome
     if ($env:CODEX_AUTH_AUTO_OPEN -ne '1') {
@@ -153,15 +153,31 @@ function Invoke-LoginLink {
       $env:OPENAI_NO_BROWSER = '1'
     }
 
-    & codex login --device-auth @ActionArgs 2>&1 | ForEach-Object {
-      $line = $_.ToString()
-      Write-Output $line
-      if (-not $link -and $line -match 'https://auth\.openai\.com/\S+') {
-        $link = $Matches[0]
-        Save-LoginLink -Link $link
+    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    if ($wsl) {
+      $useWslBridge = $true
+      Write-Output 'Using WSL login-link bridge to avoid Windows browser auto-open.'
+      & wsl.exe -e bash -lc "export CODEX_AUTH_AUTO_OPEN=0; export CODEX_AUTH_BROWSER_CMD=/bin/true; ~/.local/bin/cloginlink" 2>&1 | ForEach-Object {
+        $line = $_.ToString()
+        Write-Output $line
+        if (-not $link -and $line -match 'https://auth\.openai\.com/\S+') {
+          $link = $Matches[0]
+          Save-LoginLink -Link $link
+        }
       }
+      $exitCode = $LASTEXITCODE
+    } else {
+      Write-Output 'WSL not found; using native device-auth flow.'
+      & codex login --device-auth @ActionArgs 2>&1 | ForEach-Object {
+        $line = $_.ToString()
+        Write-Output $line
+        if (-not $link -and $line -match 'https://auth\.openai\.com/\S+') {
+          $link = $Matches[0]
+          Save-LoginLink -Link $link
+        }
+      }
+      $exitCode = $LASTEXITCODE
     }
-    $exitCode = $LASTEXITCODE
 
     if (-not $link) {
       Write-Output "No auth link was parsed automatically. You can still continue manually with the on-screen device-auth URL + code."
@@ -203,6 +219,17 @@ function Invoke-KillLogin {
     ($_.CommandLine -like '*codex*login*') -and ($_.ProcessId -ne $PID)
   }
   foreach ($proc in $candidate) {
+    try {
+      Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    } catch {
+      # ignore
+    }
+  }
+
+  $wslCandidate = Get-CimInstance Win32_Process | Where-Object {
+    ($_.CommandLine -like '*wsl.exe*cloginlink*') -or ($_.CommandLine -like '*wsl.exe*codex*login*')
+  }
+  foreach ($proc in $wslCandidate) {
     try {
       Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
     } catch {
