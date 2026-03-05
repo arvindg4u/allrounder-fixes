@@ -142,10 +142,10 @@ function Start-NativeLoginLinkFlow {
     'set "NO_BROWSER=1"',
     'set "OPENAI_NO_BROWSER=1"',
     'set "BROWSER=cmd /c exit 0"',
-    'codex login'
+    'codex login > "' + $logPath + '" 2>&1'
   ) -join ' && '
 
-  $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $command -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $logPath
+  $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $command -PassThru -WindowStyle Hidden
   $deadline = (Get-Date).AddSeconds(45)
   $link = $null
 
