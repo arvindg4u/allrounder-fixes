@@ -92,6 +92,7 @@ Expected wrapper commands after install:
 - Confirm listener on `localhost:1455`:
   - Linux/WSL: `lsof -i :1455 -sTCP:LISTEN -n -P`
   - Windows: `netstat -ano | findstr :1455`
+  - Windows fallback (WSL bridge path): `wsl.exe -e bash -lc "ss -ltnp | grep :1455"`
 - Read fresh auth URL from side-specific `.last-login-link` file.
 - Open that exact URL in Playwright (never start from generic `/log-in` URL for a fresh run).
 

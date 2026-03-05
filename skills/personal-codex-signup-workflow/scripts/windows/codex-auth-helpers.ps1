@@ -234,6 +234,8 @@ function Invoke-LoginLinkBackground {
   Write-Output "crelogin_err_log=$errLog"
   Write-Output "link_file=$script:LastLinkFile"
   Write-Output 'Use `Get-Content $env:USERPROFILE\.codex\.last-login-link` after a few seconds.'
+  Write-Output 'listener_check_windows=netstat -ano | findstr :1455'
+  Write-Output 'listener_check_wsl=wsl.exe -e bash -lc "ss -ltnp | grep :1455"'
   return 0
 }
 

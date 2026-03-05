@@ -77,6 +77,8 @@ Action:
 
 1. Linux/WSL: start `crelogin` in an interactive TTY and keep it open.
 2. Windows: run `crelogin` again (hidden background mode) and inspect `%USERPROFILE%\.codex\tmp\crelogin-*.out.log`.
+   - If `netstat -ano | findstr :1455` is empty on Windows, verify via WSL bridge:
+     - `wsl.exe -e bash -lc "ss -ltnp | grep :1455"`
 3. Read fresh URL from side-specific `.last-login-link`.
 4. Continue browser flow from signup step.
 
