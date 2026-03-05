@@ -146,7 +146,7 @@ Action:
 
 1. Reinstall updated wrappers:
    - `powershell -ExecutionPolicy Bypass -File scripts/windows/install_wrappers.ps1`
-2. Re-run `cloginlink`. Updated helper forces:
+2. Re-run `cloginlink`. Updated helper uses device-auth on Windows (manual URL flow) and forces:
    - `CODEX_AUTH_AUTO_OPEN=0`
    - `NO_BROWSER=1`
    - `OPENAI_NO_BROWSER=1`
