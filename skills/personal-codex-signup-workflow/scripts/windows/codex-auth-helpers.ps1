@@ -6,7 +6,8 @@ param(
   [string[]]$ActionArgs
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
+$PSNativeCommandUseErrorActionPreference = $false
 
 function Get-CodexHome {
   if ($env:CODEX_SHARED_HOME -and (Test-Path -LiteralPath $env:CODEX_SHARED_HOME)) {
@@ -39,6 +40,17 @@ function Copy-ToClipboard {
     return $true
   } catch {
     return $false
+  }
+}
+
+function Save-LoginLink {
+  param([string]$Link)
+  Set-Content -LiteralPath $script:LastLinkFile -Value $Link -Encoding ascii
+  if (Copy-ToClipboard -Text $Link) {
+    Write-Output "Login link copied to clipboard and saved: $script:LastLinkFile"
+  } else {
+    Write-Output "Login link found (copy tool unavailable): $Link"
+    Write-Output "Saved link to: $script:LastLinkFile"
   }
 }
 
@@ -91,10 +103,16 @@ function Invoke-CodexCommand {
 
   $oldCodexHome = $env:CODEX_HOME
   $oldBrowser = $env:BROWSER
+  $oldNoBrowser = $env:NO_BROWSER
+  $oldOpenAiNoBrowser = $env:OPENAI_NO_BROWSER
+  $oldAutoOpen = $env:CODEX_AUTH_AUTO_OPEN
 
   $env:CODEX_HOME = $script:CodexHome
   if ($SuppressAutoOpen -and $env:CODEX_AUTH_AUTO_OPEN -ne '1') {
+    $env:CODEX_AUTH_AUTO_OPEN = '0'
     $env:BROWSER = 'cmd /c exit 0'
+    $env:NO_BROWSER = '1'
+    $env:OPENAI_NO_BROWSER = '1'
   }
 
   try {
@@ -103,6 +121,60 @@ function Invoke-CodexCommand {
   } finally {
     if ($null -ne $oldCodexHome) { $env:CODEX_HOME = $oldCodexHome } else { Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue }
     if ($null -ne $oldBrowser) { $env:BROWSER = $oldBrowser } else { Remove-Item Env:BROWSER -ErrorAction SilentlyContinue }
+    if ($null -ne $oldNoBrowser) { $env:NO_BROWSER = $oldNoBrowser } else { Remove-Item Env:NO_BROWSER -ErrorAction SilentlyContinue }
+    if ($null -ne $oldOpenAiNoBrowser) { $env:OPENAI_NO_BROWSER = $oldOpenAiNoBrowser } else { Remove-Item Env:OPENAI_NO_BROWSER -ErrorAction SilentlyContinue }
+    if ($null -ne $oldAutoOpen) { $env:CODEX_AUTH_AUTO_OPEN = $oldAutoOpen } else { Remove-Item Env:CODEX_AUTH_AUTO_OPEN -ErrorAction SilentlyContinue }
+  }
+}
+
+function Start-NativeLoginLinkFlow {
+  Ensure-CodexDirs
+
+  $tmpDir = Join-Path $script:CodexHome 'tmp'
+  if (-not (Test-Path -LiteralPath $tmpDir)) {
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+  }
+
+  $logPath = Join-Path $tmpDir ("codex-login-link-" + [guid]::NewGuid().ToString('N') + ".log")
+  $command = @(
+    'set "CODEX_HOME=' + $script:CodexHome + '"',
+    'set "CODEX_AUTH_AUTO_OPEN=0"',
+    'set "NO_BROWSER=1"',
+    'set "OPENAI_NO_BROWSER=1"',
+    'set "BROWSER=cmd /c exit 0"',
+    'codex login'
+  ) -join ' && '
+
+  $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $command -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $logPath
+  $deadline = (Get-Date).AddSeconds(45)
+  $link = $null
+
+  while ((Get-Date) -lt $deadline) {
+    if (Test-Path -LiteralPath $logPath) {
+      $raw = Get-Content -Raw -LiteralPath $logPath -ErrorAction SilentlyContinue
+      if ($raw) {
+        $match = [regex]::Match($raw, 'https://auth\.openai\.com/\S+')
+        if ($match.Success) {
+          $link = $match.Value
+          break
+        }
+      }
+    }
+
+    Start-Sleep -Milliseconds 300
+    if ($proc.HasExited -and -not $link) {
+      break
+    }
+  }
+
+  if (-not $link) {
+    throw "Unable to extract auth link from Windows codex login output. If browser auto-open persists, run Linux/WSL side flow."
+  }
+
+  return @{
+    Link = $link
+    Pid = $proc.Id
+    Log = $logPath
   }
 }
 
@@ -111,41 +183,18 @@ function Invoke-LoginLink {
     return 1
   }
 
-  $oldCodexHome = $env:CODEX_HOME
-  $oldBrowser = $env:BROWSER
-  $link = $null
-  $exitCode = 0
-
   try {
-    if ($env:CODEX_AUTH_AUTO_OPEN -ne '1') {
-      Write-Output 'Browser auto-open is disabled (CODEX_AUTH_AUTO_OPEN=0).'
-      Write-Output 'Link will only be printed/copied; open it manually when ready.'
-      $env:BROWSER = 'cmd /c exit 0'
-    }
-    $env:CODEX_HOME = $script:CodexHome
+    Write-Output 'Browser auto-open is disabled (CODEX_AUTH_AUTO_OPEN=0).'
+    Write-Output 'Link will only be printed/copied; open it manually when ready.'
 
-    & codex login @ActionArgs 2>&1 | ForEach-Object {
-      $line = $_.ToString()
-      Write-Output $line
-      if (-not $link -and $line -match '^https://auth\.openai\.com/\S+') {
-        $link = $Matches[0]
-        Set-Content -LiteralPath $script:LastLinkFile -Value $link -Encoding ascii
-        if (Copy-ToClipboard -Text $link) {
-          Write-Output "Login link copied to clipboard and saved: $script:LastLinkFile"
-        } else {
-          Write-Output "Login link found (copy tool unavailable): $link"
-          Write-Output "Saved link to: $script:LastLinkFile"
-        }
-      }
-    }
-    $exitCode = $LASTEXITCODE
+    $result = Start-NativeLoginLinkFlow
+    Save-LoginLink -Link $result.Link
+    Write-Output "login_listener_pid=$($result.Pid)"
+    Write-Output "login_log_path=$($result.Log)"
+    return 0
   } finally {
-    if ($null -ne $oldCodexHome) { $env:CODEX_HOME = $oldCodexHome } else { Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue }
-    if ($null -ne $oldBrowser) { $env:BROWSER = $oldBrowser } else { Remove-Item Env:BROWSER -ErrorAction SilentlyContinue }
     Release-Lock
   }
-
-  return $exitCode
 }
 
 function Invoke-KillLogin {
@@ -186,7 +235,7 @@ function Invoke-KillLogin {
 switch ($Action) {
   'status' { exit (Invoke-CodexCommand -Args @('login','status')) }
   'login' { exit (Invoke-CodexCommand -Args @('login','--device-auth')) }
-  'login_browser' { exit (Invoke-CodexCommand -Args @('login')) }
+  'login_browser' { exit (Invoke-CodexCommand -Args @('login') -SuppressAutoOpen $true) }
   'logout' { exit (Invoke-CodexCommand -Args @('logout')) }
   'login_link' { exit (Invoke-LoginLink) }
   'relogin' {

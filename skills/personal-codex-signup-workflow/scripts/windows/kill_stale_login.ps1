@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Continue'
 
 $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
 $lockFile = Join-Path (Join-Path $codexHome '.locks') 'crelogin.lock'
@@ -17,9 +17,12 @@ Get-CimInstance Win32_Process | Where-Object {
   Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
 }
 
-$listeners = Get-NetTCPConnection -LocalPort 1455 -State Listen -ErrorAction SilentlyContinue
-foreach ($listener in $listeners) {
-  Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
+if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
+  $listeners = Get-NetTCPConnection -LocalPort 1455 -State Listen -ErrorAction SilentlyContinue
+  foreach ($listener in $listeners) {
+    Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
+  }
 }
 
 Write-Output 'stale_login_processes_cleared=true'
+exit 0

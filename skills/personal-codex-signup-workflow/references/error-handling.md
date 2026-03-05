@@ -135,3 +135,20 @@ Action:
    - Linux/WSL: `bash scripts/linux/install_wrappers.sh`
    - Windows: `powershell -ExecutionPolicy Bypass -File scripts/windows/install_wrappers.ps1`
 2. Re-run `cstatus` to confirm wrapper availability.
+
+## 12) Windows Browser Opens Automatically During Login-Link Step
+
+Symptom:
+
+- `crelogin` / `cloginlink` opens browser automatically on Windows when it should stay manual.
+
+Action:
+
+1. Reinstall updated wrappers:
+   - `powershell -ExecutionPolicy Bypass -File scripts/windows/install_wrappers.ps1`
+2. Re-run `cloginlink`. Updated helper forces:
+   - `CODEX_AUTH_AUTO_OPEN=0`
+   - `NO_BROWSER=1`
+   - `OPENAI_NO_BROWSER=1`
+   - `BROWSER=cmd /c exit 0`
+3. If auto-open still persists, continue signup flow from Linux/WSL side for link generation, then proceed with browser automation.
