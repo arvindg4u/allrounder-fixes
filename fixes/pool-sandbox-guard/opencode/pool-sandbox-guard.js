@@ -321,7 +321,7 @@ export const PoolSandboxGuard = async ({ directory }) => {
 
       // --- make / cmake / meson installs default to /usr/local (wiped) ---
       if (argv0 === "make" && has(/(^|\s)install\b/)) {
-        if (!has(/\bPREFIX=~?\//) && !has(/\bPREFIX=__POOL_ROOT_RX__//) && !has(/\bDESTDIR=/) ) {
+        if (!has(/\bPREFIX=(~\/|__POOL_ROOT_RX__(\/|$)|__POOL_ALIAS_RX__(\/|$))/) && !has(/\bDESTDIR=/) ) {
           denyInstall("make install", "Use `make install PREFIX=~/...` so files land inside the studio.");
         }
       }
