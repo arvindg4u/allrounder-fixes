@@ -34,6 +34,13 @@ Two layers that mirror each other:
 - **OpenCode** — `opencode/pool-sandbox-guard.js` plugin enforcing the same
   boundary on `tool.execute.before`, plus global-install redirection with
   root-local alternatives.
+- **Cline** — `cline/pool-sandbox-guard.js` plugin (global
+  `~/.cline/plugins/`, auto-discovered for every session) enforcing the same
+  boundary via a `beforeTool` hook that returns `{ skip: true }`
+  (the same mechanism as Cline's official `env-blocker` /
+  `gitignore-read-files-guard` examples), plus `cline/pool-sandbox-guard.md`
+  advisory rule installed to `~/.cline/rules/`. Covers Cline's tool ids:
+  `read_files`, `editor`, `apply_patch`, `run_commands`, `search_codebase`.
 
 ## Install
 
@@ -55,7 +62,10 @@ Options:
 - `--opencode-plugins DIR` — OpenCode plugins dir (default:
   `$OPENCODE_CONFIG_DIR/plugins`, else `~/.config/opencode/plugins`).
 - `--alias PATH` — second persistent path (e.g. a bind-mount alias).
-- `--no-claude` / `--no-opencode` — install only one side.
+- `--cline-plugins DIR` — Cline plugins dir (default: `~/.cline/plugins`
+  if it exists, else `$TARGET_DIR/.cline/plugins`; the advisory
+  `.md` rule goes to the sibling `rules/` dir).
+- `--no-claude` / `--no-opencode` / `--no-cline` — install only some sides.
 
 The installer substitutes your root into the `__POOL_*__` template tokens
 and writes `.local.md` copies (the suffix hookify loads; keep it in
@@ -66,6 +76,9 @@ and writes `.local.md` copies (the suffix hookify loads; keep it in
 - Claude Code: run `ls /tmp` in a session — expect a block message naming
   your persistent root. Rules are active immediately, no restart needed.
 - OpenCode: reload the client after install, same check.
+- Cline: new sessions pick up the global plugin automatically; same check
+  (`read_files` on `/etc/hostname`, or `run_commands` with `npm i -g x`,
+  must be denied with a persistent-local alternative).
 - `pip install requests`, `npm i -g vercel`, `sudo apt update` must all be
   denied with a persistent-local alternative.
 
@@ -82,4 +95,6 @@ and writes `.local.md` copies (the suffix hookify loads; keep it in
   defaults point outside the persistent root. If your root IS `$HOME`,
   those installs persist fine — delete or relax the matching block.
 - Uninstall: delete `.claude/hookify.block-pool-*.local.md` and
-  `pool-sandbox-guard.js` from the plugins dir.
+  `pool-sandbox-guard.js` from the plugins dir. For Cline, also delete
+  `~/.cline/plugins/pool-sandbox-guard.js` and
+  `~/.cline/rules/pool-sandbox-guard.md`.
