@@ -142,12 +142,13 @@ function loopGuardTest() {
         try { w.sessionStorage.setItem('sas_trail', JSON.stringify([url, url, url])); } catch (e) { /* ignore */ }
         const clicks = [];
         w.document.querySelectorAll('a, button').forEach(el =>
-            el.addEventListener('click', () => clicks.push(el.id || el.textContent)));
+            el.addEventListener('click', () => clicks.push(el.textContent || el.id)));
         setTimeout(() => inject(dom), 50);
         setTimeout(() => {
             const badge = w.document.getElementById('sas-badge');
-            const ok = clicks.length === 0;
-            console.log(`${ok ? 'PASS' : 'FAIL'}  loop guard stops after revisiting the same page` +
+            const tookLoopLink = clicks.some(c => /Corporate Sponsored Global Degree/.test(c));
+            const ok = !tookLoopLink;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  cautious mode: revisited page never re-follows the seen link` +
                 (badge ? ` (badge: "${badge.textContent.replace('auto-skip', '')}")` : ''), clicks);
             w.close();
             resolve(ok);

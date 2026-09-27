@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Shortlink Auto-Skip (timers + auto-continue)
 // @namespace    https://github.com/arvindg4u/allrounder-fixes
-// @version      1.4.0
+// @version      1.5.0
 // @description  Automates "wait 15 seconds / wait 10 seconds / click Continue" pages on earn-per-click short URL sites: speeds up countdowns, enables + clicks the Continue/Verify/Next/Get-Link button for every step and lands you on the final destination URL. Handles blog-style gates (vplink & friends) too.
 // @author       arvindg4u
 // @license      MIT
@@ -194,8 +194,16 @@
     const HERE = location.href.split('#')[0];
     let trail = [];
     try { trail = JSON.parse(sessionStorage.getItem('sas_trail') || '[]'); } catch (e) { trail = []; }
+    // A page that simply RELOADS itself (these gates do that constantly, and so
+    // does our own dead-end reload) must not look like a loop. Only count a
+    // revisit when we actually came here from somewhere else.
+    let cameFromElsewhere = true;
+    try {
+        const ref = document.referrer ? document.referrer.split('#')[0] : '';
+        cameFromElsewhere = !ref || ref !== HERE;
+    } catch (e) { /* ignore */ }
     const seenBefore = trail.filter(u => u === HERE).length;
-    if (!IN_FRAME) trail.push(HERE);
+    if (!IN_FRAME && cameFromElsewhere) trail.push(HERE);
     if (trail.length > 30) trail = trail.slice(-30);
     try { sessionStorage.setItem('sas_trail', JSON.stringify(trail)); } catch (e) { /* ignore */ }
 
@@ -205,7 +213,29 @@
         return m ? { cur: Number(m[1]), total: Number(m[2]) } : null;
     }
 
-    const loopTripped = hops > 15 || (CFG.loopDetect && seenBefore >= 2);
+    // Real progress (a higher "step x/y" than anything seen so far) clears the
+    // whole loop history — you are not going in circles if you are advancing.
+    function notePr0gress() {
+        const st = readStep();
+        if (!st) return;
+        let best = 0;
+        try { best = parseInt(sessionStorage.getItem('sas_step_best') || '0', 10) || 0; } catch (e) { /* ignore */ }
+        if (st.cur > best) {
+            try {
+                sessionStorage.setItem('sas_step_best', String(st.cur));
+                sessionStorage.setItem('sas_trail', JSON.stringify([HERE]));
+                sessionStorage.setItem(hopKey, '1');
+            } catch (e) { /* ignore */ }
+            trail = [HERE];
+            log('progress: step', st.cur, '-> loop history cleared');
+        }
+    }
+
+    // "Cautious" is NOT "off": when we may be looping we still run the timer /
+    // visibility layers and still click buttons we have never tried, we just
+    // refuse to follow links that lead back to pages we already passed.
+    const cautious = CFG.loopDetect && (hops > 15 || seenBefore >= 3);
+    const loopTripped = false;
 
     /* ───────────────── layer 1: timer acceleration ──────────────────── */
 
@@ -530,6 +560,11 @@
     }
 
     function mayClick(el) {
+        // never click our own UI (the badge is the STOP button!)
+        try {
+            if (el.id && el.id.indexOf('sas-') === 0) return false;
+            if (el.closest && el.closest('#sas-badge, #sas-diag')) return false;
+        } catch (e) { /* ignore */ }
         const rec = clickLog.get(el);
         if (!rec) return true;
         if (rec.n >= MAX_CLICKS_PER_ELEMENT) return false;
@@ -618,18 +653,45 @@
         if (CONTINUE_TEXT.test(t) && pendingVerifyFlag) s -= 45;
         const href = hrefOf(el);
         if (href && trail.includes(href)) s -= 300;
+        if (cautious && clickLog.has(el)) s -= 500;
         return s;
     }
 
-    function candidates(loose) {
-        const sel = 'button, a, input[type="submit"], input[type="button"], [role="button"], .btn, .button';
+    // Plenty of these gates render their step button as a <div onclick> or a
+    // styled <span>, which a button/a-only scan never sees ("nothing to click").
+    const CLICKABLE_SEL = [
+        'button', 'a', 'input[type="submit"]', 'input[type="button"]', '[role="button"]',
+        '.btn', '.button', '[onclick]', '[class*="btn" i]', '[class*="button" i]',
+        '[id*="btn" i]', '[id*="verify" i]', '[id*="continue" i]', '[id*="getlink" i]',
+        '[class*="verify" i]', '[class*="continue" i]', 'label[for]',
+    ].join(', ');
+
+    function textishButtons() {
+        // last resort: any small visible element whose text is a step label
         const out = [];
-        document.querySelectorAll(sel).forEach(el => {
+        document.querySelectorAll('div, span, p, h2, h3, h4, strong, b, td, li, center, font').forEach(el => {
+            if (el.children.length > 2) return;
+            const t = textOf(el);
+            if (!t || t.length > 40 || !GOOD_TEXT.test(t) || BAD_TEXT.test(t)) return;
+            if (!isVisible(el)) return;
+            out.push(el);
+        });
+        return out.slice(0, 12);
+    }
+
+    function candidates(loose) {
+        const out = [];
+        const seen = new Set();
+        const consider = (el) => {
+            if (seen.has(el)) return;
+            seen.add(el);
             if (!mayClick(el)) return;
             if (!loose && (!isVisible(el) || isDisabled(el))) return;
             const s = score(el);
             if (s >= (loose ? 30 : 50)) out.push({ el, s });
-        });
+        };
+        document.querySelectorAll(CLICKABLE_SEL).forEach(consider);
+        if (!out.length) textishButtons().forEach(consider);   // widen only when needed
         return out.sort((a, b) => b.s - a.s).map(o => o.el);
     }
 
@@ -871,10 +933,9 @@
 
     function shouldRun() {
         if (!CFG.enabled || CFG.genericMode === 'off') return false;
-        if (loopTripped) {
-            log('loop guard tripped on', HOST, '(seen this page', seenBefore, 'times)');
-            NATIVE.setTimeout(() => setBadge('loop detected — this gate needs one manual step (click its image/ad once, then Continue)'), 800);
-            return false;
+        if (cautious) {
+            log('cautious mode on', HOST, '(seen this page', seenBefore, 'times, hops', hops + ')');
+            NATIVE.setTimeout(() => setBadge('possible loop — only trying buttons I have never clicked'), 1200);
         }
         if (isKnownHost()) return true;
         if (CFG.genericMode === 'aggressive') return true;
@@ -914,7 +975,7 @@
 
     // At document-start we only touch pages we already know are gates, so a
     // normal website never gets its timers or popups messed with.
-    const earlyEngage = CFG.enabled && !loopTripped &&
+    const earlyEngage = CFG.enabled &&
         (isKnownHost() || CFG.genericMode === 'aggressive');
     if (earlyEngage) {
         patchTimers();
@@ -929,6 +990,7 @@
         if (started) return;
         if (!shouldRun()) { log('not a shortlink gate, idling on', HOST); return; }
         started = true;
+        notePr0gress();
         const st = readStep();
         log('engaged on', HOST, st ? '(step ' + st.cur + '/' + st.total + ')' : '');
         if (!earlyEngage) {            // late engage: heuristic said "this is a gate"
@@ -966,7 +1028,10 @@
         NATIVE.setTimeout(() => { if (CFG.enabled && clickCount === 0) { setBadge('fallback scan…'); step(true); } }, CFG.hardFallbackMs * 2);
         NATIVE.setTimeout(() => {
             if (!CFG.enabled) return;
-            if (clickCount === 0) { setBadge('nothing to click — do it manually'); stop(); }
+            if (clickCount === 0) {
+                setBadge('nothing found to click — tap me, then run the 🩺 diagnostics bookmarklet');
+                log('give up: no candidates. Loose scan saw', candidates(true).length, 'elements');
+            }
             deadEndReload();
         }, CFG.giveUpMs);
     }

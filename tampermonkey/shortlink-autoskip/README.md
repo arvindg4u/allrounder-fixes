@@ -1,6 +1,6 @@
 # Shortlink Auto-Skip — Tampermonkey userscript
 
-**v1.4.0** — defeats the *popup-ad + "come back" + timer* gates: visibility/focus shield plus a simulated ad round trip.
+**v1.5.0** — fixes the two bugs that made it give up: a reload-counting "loop detected" guard, and a scan that missed `<div>`/`<span>` step buttons.
 
 Automates the "wait 15 seconds → Continue → wait 10 seconds → Click here to continue → Get Link"
 chain used by earn-per-click short URL sites, so you land on the **final destination URL / file**
@@ -220,6 +220,25 @@ DIAGNOSE**) dumps, from the stuck page itself:
 It shows a panel with **Copy** and **Download .txt**. Nothing is uploaded anywhere. Send that text
 and an exact rule can be written for the site instead of another guess.
 
+## Why it used to say "loop detected" / "nothing to click" (fixed in v1.5)
+
+Both of those messages were **my own guards misfiring**, not the gate winning:
+
+* **Reloads counted as a loop.** These gates reload the same URL constantly (and so did the
+  dead-end reload), so after the third load the guard declared a loop and switched everything off.
+  Now a self-reload (`document.referrer === location.href`) is not counted, the threshold is 3
+  revisits, and advancing a step (`step 2/3` → `3/3`) **clears the loop history completely**.
+* **"Loop" no longer means "stop".** It switches to *cautious mode*: the timer, clock and
+  visibility layers keep running and buttons that have never been clicked are still tried — only
+  links back to pages already visited are refused.
+* **The scan missed the button.** It only looked at `button / a / input / [role=button] / .btn`.
+  Many of these gates render the step button as a `<div onclick>` or a styled `<span>`, so nothing
+  was ever found. The scan now also covers `[onclick]`, `[class*=btn]`, `[class*=button]`,
+  `[id*=verify|continue|getlink]`, and — as a last resort — any small visible element whose text
+  is a step label.
+* And it no longer clicks **its own badge** (whose "auto-skip" text matched "skip" — that badge is
+  the stop button, so the script was switching itself off).
+
 ### If a site still doesn't work
 
 1. Watch the `auto-skip` badge bottom-right — it says whether it engaged and what it clicked.
@@ -293,7 +312,7 @@ node test/run-tests.js
 # PASS  ad-gate "click the photo" step 2/3
 # PASS  timer-armed Verify with no visible countdown
 # PASS  popup-ad visit gate
-# PASS  loop guard stops after revisiting the same page
+# PASS  cautious mode: revisited page never re-follows the seen link
 # PASS  bookmarklet build on the blog gate
 # PASS  ignores a news article saying "30 seconds ago"
 ```
