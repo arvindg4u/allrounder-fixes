@@ -24,6 +24,7 @@ const GATE_HTML = strip('mock-shortlink.html');
 const BLOG_HTML = strip('mock-blog-gate.html');
 const ADGATE_HTML = strip('mock-adgate.html');
 const TIMED_HTML = strip('mock-timed-verify.html');
+const VISIT_HTML = strip('mock-visit-gate.html');
 
 function makeDom(html, url, onAd, referrer) {
     const dom = new JSDOM(html, {
@@ -176,6 +177,29 @@ function timedVerifyTest() {
     });
 }
 
+// The hardest variant: popunder ad + Page-Visibility check ("did you leave and
+// come back?") + a 15s timer that only starts after the return.
+function adVisitGateTest() {
+    return new Promise(resolve => {
+        const dom = makeDom(VISIT_HTML, 'https://entiredust.example/studyscholorhiipss/post-7/',
+            null, 'https://vplink.in/MEIN_ID_SAFE_PANEL');
+        const w = dom.window;
+        let navigated = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const ok = navigated && !!w.__sawLeave && !!w.__sawReturn;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  popup-ad visit gate ` +
+                `(reached final: ${navigated}, saw leave: ${!!w.__sawLeave}, saw return: ${!!w.__sawReturn}, ` +
+                `page says: "${w.document.getElementById('msg').textContent}")`);
+            w.close();
+            resolve(ok);
+        }, 12000);
+    });
+}
+
 function idleTest() {
     return new Promise(resolve => {
         const html = `<html><body><h1>My blog</h1><p>${'lorem ipsum dolor sit amet '.repeat(400)}</p>
@@ -200,6 +224,7 @@ function idleTest() {
         'https://rotating-partner-blog.example/studyblogs/some-post/', BLOG_HTML, 'https://vplink.in/MEIN_ID_SAFE_PANEL'));
     results.push(await adGateTest());
     results.push(await timedVerifyTest());
+    results.push(await adVisitGateTest());
     results.push(await loopGuardTest());
     results.push(await bookmarkletTest());
     results.push(await idleTest());

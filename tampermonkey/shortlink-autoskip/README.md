@@ -1,6 +1,6 @@
 # Shortlink Auto-Skip — Tampermonkey userscript
 
-**v1.3.0** — waits out *their* timer (the one that arms `Verify`), warps the page clock, retries with backoff, and works inside iframes.
+**v1.4.0** — defeats the *popup-ad + "come back" + timer* gates: visibility/focus shield plus a simulated ad round trip.
 
 Automates the "wait 15 seconds → Continue → wait 10 seconds → Click here to continue → Get Link"
 chain used by earn-per-click short URL sites, so you land on the **final destination URL / file**
@@ -13,6 +13,7 @@ without babysitting the tab.
 | `test/mock-blog-gate.html` | A **vplink-style** gate: long article, JS-injected countdown, hidden `CONTINUE` with a locked `href="#"` |
 | `test/mock-adgate.html` | An **entiredust-style** `step 2/3` gate: Hindi "click the photo" ad check, `Verify`, and a loop-back link |
 | `test/mock-timed-verify.html` | The nastier variant: **no countdown is shown at all**, `Verify` just refuses to work for 10s |
+| `test/mock-visit-gate.html` | The hardest one: popunder ad + Page-Visibility check (*did you leave and come back?*) + 15s timer |
 | `test/final.html` | The "final URL" the mock redirects to |
 | `test/run-tests.js` | Headless jsdom tests (no browser needed) |
 | `bookmarklet/` | Builder + ready-made bookmarklet for browsers where Tampermonkey is blocked |
@@ -167,6 +168,42 @@ button that mattered. v1.3 changes the policy:
 * **Iframe support.** `@noframes` is gone: gate widgets that live in an iframe get clicked too
   (inside frames the script only clicks — no badge, no navigation shortcuts).
 
+## Popup-ad "go away and come back" gates (v1.4) — how they actually work
+
+Research on this gate family (Safelink/Soralink-style WordPress kits, and what the big bypass
+scripts + uBlock filters do about them) shows they don't rely on a countdown at all. They use:
+
+1. **The Page Visibility API** — `document.hidden` / `visibilityState` / the `visibilitychange`
+   event, plus `window.blur`/`focus` and `document.hasFocus()` — to check that you *left the tab
+   for the ad and returned*. Their timer is usually started **on your return**, not on page load.
+2. **A popunder** via `window.open`, whose returned window object they keep and poll (`w.closed`);
+   a `null` return also doubles as adblock detection.
+3. A wall-clock (`Date.now()`) wait after the return, which `setTimeout` patching can't shorten.
+
+That's why the mainstream scripts neutralise exactly those events (Bloggerpemula's `EnableRCF`
+force-fires `stopImmediatePropagation` on `visibilitychange`/`blur`/`focus`/`mouseleave`, and
+uBlock's shortener filters use `+js(aeld, /visibilitychange|focus|blur/)` and
+`+js(set, document.hidden, …)`).
+
+v1.4 implements both halves, because the two cases need opposite behaviour:
+
+* **Visibility / focus shield (default on).** `document.hidden` → `false`,
+  `visibilityState` → `visible`, `hasFocus()` → `true`, and `blur` / `visibilitychange` /
+  `pagehide` / `mouseleave` are swallowed. Their timer keeps running and never resets when you
+  switch tabs.
+* **Simulated ad round trip.** When the page's copy asks for it (*"click the ad, wait 15 seconds
+  and come back"*, *"फिर इसी पेज पर वापस आएं"*) — or when a `Verify` button stays inert — the
+  script briefly drops the shield and fakes the whole trip: `hidden` + `visibilitychange` + `blur`
+  + `pagehide`, the fake popup reports itself open, then `visible` + `visibilitychange` + `focus` +
+  `pageshow` with the popup reported closed. The gate believes you visited the ad; **no ad ever
+  opens**. Up to 3 attempts, each one granting the buttons a fresh retry budget.
+* **Believable fake popup.** `window.open` now returns a real-looking window object that is
+  `closed: false` and flips to `closed: true` after ~1.5s, instead of an obviously-dead stub
+  (which some gates read as "adblock user").
+* **Dead-end reload.** Pages that insist *"click any ad and keep it open for 15 seconds"* get one
+  automatic reload (once per URL) — the standard trick for those.
+* Buttons are never machine-gunned: minimum 1.5s between clicks on the same element.
+
 ### If a site still doesn't work
 
 1. Watch the `auto-skip` badge bottom-right — it says whether it engaged and what it clicked.
@@ -239,6 +276,7 @@ node test/run-tests.js
 # PASS  ignores a checkout page that has a .timer + Continue button
 # PASS  ad-gate "click the photo" step 2/3
 # PASS  timer-armed Verify with no visible countdown
+# PASS  popup-ad visit gate
 # PASS  loop guard stops after revisiting the same page
 # PASS  bookmarklet build on the blog gate
 # PASS  ignores a news article saying "30 seconds ago"

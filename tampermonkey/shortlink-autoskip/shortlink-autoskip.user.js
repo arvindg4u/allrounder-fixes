@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Shortlink Auto-Skip (timers + auto-continue)
 // @namespace    https://github.com/arvindg4u/allrounder-fixes
-// @version      1.3.0
+// @version      1.4.0
 // @description  Automates "wait 15 seconds / wait 10 seconds / click Continue" pages on earn-per-click short URL sites: speeds up countdowns, enables + clicks the Continue/Verify/Next/Get-Link button for every step and lands you on the final destination URL. Handles blog-style gates (vplink & friends) too.
 // @author       arvindg4u
 // @license      MIT
@@ -55,12 +55,15 @@
         genericMode: 'heuristic',
         speedUpTimers: true,
         warpClock: true,        // also speed up Date.now()/new Date() — many gates poll wall-clock
+        visibilityShield: true, // never let the gate see the tab as hidden/unfocused
+        simulateAdVisit: true,  // fake the "went to the ad and came back" round trip
+        deadEndReload: true,    // reload once on "click an ad and keep it open" dead ends
         speedFactor: 60,        // 15000ms countdown -> ~250ms
         minDelayToSpeed: 300,   // don't touch animation-ish timers
         maxDelayToSpeed: 300000,
         firstClickDelayMs: 600, // let the page settle before the first click
         clickIntervalMs: 700,   // how often we re-scan for the step button
-        maxClicksPerPage: 15,
+        maxClicksPerPage: 30,
         hardFallbackMs: 15000,  // if nothing worked in 15s, try the loose scan
         giveUpMs: 90000,        // stop scanning entirely after this long
         blockPopups: true,
@@ -166,13 +169,14 @@
     // Buttons that did nothing YET. Never permanent: these gates arm their
     // Verify button only after their own timer expires, so a button that was
     // inert 3 seconds ago is very often the right button 10 seconds later.
-    const coldElements = new WeakSet();
+    let coldElements = new WeakSet();
 
     // element -> { sig, at, n, fp }
-    const clickLog = new WeakMap();
+    let clickLog = new WeakMap();
     // attempt 1 -> retry after 2.5s, then 6s, 12s, 20s, 30s …
     const BACKOFF_MS = [0, 2500, 6000, 12000, 20000, 30000, 45000];
     const MAX_CLICKS_PER_ELEMENT = 7;
+    const MIN_CLICK_GAP_MS = 1500;
     let clickCount = 0;
     let started = false;
     let scanTimer = null;
@@ -280,6 +284,98 @@
         });
     }
 
+    /* ─── layer 1c: visibility / focus shield + fake ad round trip ────── */
+
+    // These gates decide whether you "really visited the ad" with the Page
+    // Visibility API (document.hidden / visibilitychange) and window focus.
+    //   shieldOn = true  -> page always looks visible+focused, so their timer
+    //                       keeps running and never resets while you are away.
+    //   a round trip     -> we deliberately fake hidden -> visible again, which
+    //                       is what unlocks gates that REQUIRE you to leave.
+    const openedPopups = [];
+    let shieldOn = true;
+    let fakeHidden = false;
+    let roundTrips = 0;
+
+    function defineGetter(obj, prop, getter) {
+        try { Object.defineProperty(obj, prop, { configurable: true, get: getter }); } catch (e) { /* ignore */ }
+    }
+
+    function shieldVisibility() {
+        if (!CFG.visibilityShield) return;
+        const doc = (PAGE && PAGE.document) || document;
+        defineGetter(doc, 'hidden', () => fakeHidden);
+        defineGetter(doc, 'webkitHidden', () => fakeHidden);
+        defineGetter(doc, 'mozHidden', () => fakeHidden);
+        defineGetter(doc, 'msHidden', () => fakeHidden);
+        defineGetter(doc, 'visibilityState', () => (fakeHidden ? 'hidden' : 'visible'));
+        defineGetter(doc, 'webkitVisibilityState', () => (fakeHidden ? 'hidden' : 'visible'));
+        try { doc.hasFocus = () => !fakeHidden; } catch (e) { /* ignore */ }
+
+        const swallow = (e) => { if (shieldOn && !e.__sas) { e.stopImmediatePropagation(); } };
+        ['blur', 'visibilitychange', 'webkitvisibilitychange', 'mozvisibilitychange',
+            'msvisibilitychange', 'pagehide', 'mouseleave', 'freeze'].forEach(type => {
+            try { doc.addEventListener(type, swallow, true); } catch (e) { /* ignore */ }
+            try { PAGE.addEventListener(type, swallow, true); } catch (e) { /* ignore */ }
+        });
+        log('visibility shield on');
+    }
+
+    function fire(target, type) {
+        try {
+            const ev = new PAGE.Event(type, { bubbles: false, cancelable: false });
+            ev.__sas = true;                    // our own events are never swallowed
+            target.dispatchEvent(ev);
+        } catch (e) { /* ignore */ }
+    }
+
+    // "Open the ad, wait, come back" — performed entirely inside this tab.
+    function simulateAdRoundTrip(done) {
+        if (!CFG.simulateAdVisit || roundTrips >= 3) return false;
+        roundTrips++;
+        const doc = (PAGE && PAGE.document) || document;
+        setBadge('simulating the ad visit (nothing opens)…');
+        log('ad round trip #' + roundTrips);
+
+        shieldOn = false;                       // let THESE events through
+        fakeHidden = true;
+        openedPopups.forEach(w => { w.closed = false; });
+        fire(doc, 'visibilitychange');
+        fire(doc, 'webkitvisibilitychange');
+        fire(PAGE, 'blur');
+        fire(PAGE, 'pagehide');
+
+        NATIVE.setTimeout(() => {
+            fakeHidden = false;
+            openedPopups.forEach(w => { w.closed = true; });
+            fire(doc, 'visibilitychange');
+            fire(doc, 'webkitvisibilitychange');
+            fire(PAGE, 'focus');
+            fire(PAGE, 'pageshow');
+            shieldOn = true;
+            clickLog = new WeakMap();      // new state -> fresh attempt budget
+            coldElements = new WeakSet();
+            log('ad round trip complete');
+            if (done) done();
+        }, 1200);
+        return true;
+    }
+
+    // Last resort for "click any ad and keep it open for 15 seconds" dead ends:
+    // reload the page once (the gate usually re-rolls into a passable state).
+    function deadEndReload() {
+        if (!CFG.deadEndReload || IN_FRAME) return;
+        const t = bodyText();
+        if (!/click\s+(on\s+)?(any\s+)?ads?\b[^.]{0,60}(keep|open|continue)|click\s+on\s+the\s+ads?\s+to\s+continue/i.test(t)) return;
+        const key = 'sas_reload_' + HERE;
+        try {
+            if (sessionStorage.getItem(key)) return;
+            sessionStorage.setItem(key, '1');
+        } catch (e) { return; }
+        setBadge('ad-wall dead end — reloading once');
+        NATIVE.setTimeout(() => location.reload(), 1500);
+    }
+
     /* ───────────── layer 1b: popup / new-tab blocking ───────────────── */
 
     function blockPopups() {
@@ -287,8 +383,17 @@
         try {
             const origOpen = PAGE.open;
             PAGE.open = function (url) {
+                // Hand back a believable window: gates (and adblock detectors) check
+                // the return value, and popunder code polls `closed`. Nothing opens.
+                const fake = {
+                    closed: false, name: '', opener: PAGE, location: { href: url || '' },
+                    close() { this.closed = true; }, focus() {}, blur() {}, postMessage() {},
+                    document: { write() {}, close() {}, body: null },
+                };
+                openedPopups.push(fake);
+                NATIVE.setTimeout(() => { fake.closed = true; }, 1500);
                 log('blocked popup ->', url);
-                return { closed: true, close() {}, focus() {}, blur() {}, postMessage() {}, document: { write() {}, close() {} } };
+                return fake;
             };
             PAGE.open.__sasPatched = true;
             PAGE.__sasOrigOpen = origOpen;
@@ -428,10 +533,12 @@
         const rec = clickLog.get(el);
         if (!rec) return true;
         if (rec.n >= MAX_CLICKS_PER_ELEMENT) return false;
+        const gap = Date.now() - rec.at;
+        if (gap < MIN_CLICK_GAP_MS) return false;               // never machine-gun a button
         if (rec.sig !== signature(el)) return true;             // label/state changed -> new step
         if (rec.fp !== pageFingerprint()) return true;          // page moved on -> worth another go
         const wait = BACKOFF_MS[Math.min(rec.n, BACKOFF_MS.length - 1)];
-        return (Date.now() - rec.at) > wait;                    // patient retry, no hammering
+        return gap > wait;                                      // patient retry, no hammering
     }
 
     function unlock(el) {
@@ -483,9 +590,12 @@
         catch (e) { return ''; }
     }
 
+    // "Verify first" only applies while a verification button has never been
+    // pressed. Once it has, Continue competes on equal terms — otherwise a
+    // leftover Verify button would block the rest of the flow forever.
     function pendingVerify() {
         return Array.from(document.querySelectorAll('button, a, [role="button"], .btn, input[type="submit"]'))
-            .some(el => VERIFY_TEXT.test(textOf(el)) && isVisible(el) && !isDisabled(el) && mayClick(el));
+            .some(el => VERIFY_TEXT.test(textOf(el)) && isVisible(el) && !isDisabled(el) && !clickLog.has(el));
     }
 
     function score(el) {
@@ -570,6 +680,7 @@
         }
         pendingVerifyFlag = pendingVerify();
         satisfyAdClick();
+        maybeRoundTrip();
 
         for (const el of siteSelectorTargets()) {
             if (isVisible(el) || loose) { if (clickOnce(el, 'site-rule')) return; }
@@ -603,6 +714,16 @@
                 coldElements.add(el);      // deprioritised, NOT banned — their timer may still arm it
                 log('no effect yet (will retry with backoff):', textOf(el) || el.id);
             }
+            // A Verify that ignores us usually wants proof you visited the ad:
+            // fake the whole leave-and-come-back trip, then try it again at once.
+            if (VERIFY_TEXT.test(textOf(el)) || n >= 2) {
+                simulateAdRoundTrip(() => {
+                    const r = clickLog.get(el);
+                    if (r) r.at = 0;                       // skip the backoff for this retry
+                    setBadge('back from the "ad" — retrying');
+                    step(false);
+                });
+            }
         }, 3000);
     }
 
@@ -634,6 +755,14 @@
             log('ad-gate click fired on', el.tagName, (el.getAttribute && el.getAttribute('href')) || '');
         });
         NATIVE.setTimeout(() => document.removeEventListener('click', block, true), 50);
+    }
+
+    // Gate copy that literally describes the round trip we can fake.
+    const ROUND_TRIP_COPY = /(come back|comeback|वापस आएं|वापस आये|did ?n[o']?t visit|visit the ad|click the ad|keep it open|and return|then return|फिर इसी पेज)/i;
+    function maybeRoundTrip() {
+        if (roundTrips > 0 || !CFG.simulateAdVisit) return;
+        if (!ROUND_TRIP_COPY.test(bodyText().slice(0, 6000))) return;
+        simulateAdRoundTrip(() => { setBadge('back from the "ad" — retrying'); step(false); });
     }
 
     function nudgeScroll() {
@@ -790,6 +919,7 @@
     if (earlyEngage) {
         patchTimers();
         patchClock();
+        shieldVisibility();
         blockPopups();
         zeroCounters();
         if (tryShortcut()) return;
@@ -804,6 +934,7 @@
         if (!earlyEngage) {            // late engage: heuristic said "this is a gate"
             patchTimers();
             patchClock();
+            shieldVisibility();
             blockPopups();
             zeroCounters();
         }
@@ -833,7 +964,11 @@
         // Hard fallback: page fought us for 15s -> loosen the rules once.
         NATIVE.setTimeout(() => { if (CFG.enabled && clickCount === 0) { setBadge('fallback scan…'); step(true); } }, CFG.hardFallbackMs);
         NATIVE.setTimeout(() => { if (CFG.enabled && clickCount === 0) { setBadge('fallback scan…'); step(true); } }, CFG.hardFallbackMs * 2);
-        NATIVE.setTimeout(() => { if (CFG.enabled && clickCount === 0) { setBadge('nothing to click — do it manually'); stop(); } }, CFG.giveUpMs);
+        NATIVE.setTimeout(() => {
+            if (!CFG.enabled) return;
+            if (clickCount === 0) { setBadge('nothing to click — do it manually'); stop(); }
+            deadEndReload();
+        }, CFG.giveUpMs);
     }
 
     if (document.readyState === 'loading') {
