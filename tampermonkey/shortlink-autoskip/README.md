@@ -1,6 +1,6 @@
 # Shortlink Auto-Skip — Tampermonkey userscript
 
-**v1.2.0** — survives the *"click the photo, wait 15s, come back"* + `step 2/3` ad-gates (entiredust.in & co.) and never spins in a loop again.
+**v1.3.0** — waits out *their* timer (the one that arms `Verify`), warps the page clock, retries with backoff, and works inside iframes.
 
 Automates the "wait 15 seconds → Continue → wait 10 seconds → Click here to continue → Get Link"
 chain used by earn-per-click short URL sites, so you land on the **final destination URL / file**
@@ -12,6 +12,7 @@ without babysitting the tab.
 | `test/mock-shortlink.html` | A fake 3-step gate (15s → 10s → 5s) to verify it works, plus decoy ad buttons |
 | `test/mock-blog-gate.html` | A **vplink-style** gate: long article, JS-injected countdown, hidden `CONTINUE` with a locked `href="#"` |
 | `test/mock-adgate.html` | An **entiredust-style** `step 2/3` gate: Hindi "click the photo" ad check, `Verify`, and a loop-back link |
+| `test/mock-timed-verify.html` | The nastier variant: **no countdown is shown at all**, `Verify` just refuses to work for 10s |
 | `test/final.html` | The "final URL" the mock redirects to |
 | `test/run-tests.js` | Headless jsdom tests (no browser needed) |
 | `bookmarklet/` | Builder + ready-made bookmarklet for browsers where Tampermonkey is blocked |
@@ -147,6 +148,25 @@ posts forever. v1.2 handles all of it:
 * **Step awareness** — `step 2/3` is parsed and shown on the badge, so you can see real progress.
 * Multilingual button text: जारी रखें, आगे बढ़ें, यहाँ क्लिक, डाउनलोड लिंक, सत्यापित …
 
+## Timer-armed `Verify` buttons (v1.3)
+
+On `entiredust.in` and friends there is often **no visible countdown**: the page just keeps its
+`Verify` button inert until its own timer (10–50s) expires, then `Verify` → `Continue` works.
+v1.2 made this *worse* — it clicked Verify immediately, saw no effect, and blacklisted the one
+button that mattered. v1.3 changes the policy:
+
+* **No permanent blacklist.** A button that did nothing is only *deprioritised*; it is retried with
+  backoff (2.5s → 6s → 12s → 20s → 30s → 45s, up to 7 attempts) and instantly re-armed whenever its
+  label, state or the page fingerprint changes. Patient, but never spammy.
+* **Clock warping.** Countdown code that polls `Date.now()` / `new Date()` / `performance.now()`
+  (instead of `setTimeout`) can't be sped up by patching timers, so on gate pages the script now
+  runs the page's clock `speedFactor`× faster as well. A 50-second wall-clock gate arms in about a
+  second. (Turn it off with `warpClock: false` if a site checks timing server-side.)
+* **Waits while a countdown is visibly ticking** instead of wasting attempts on a button that isn't
+  armed yet — the badge says *"their timer is running — waiting for Verify to arm"*.
+* **Iframe support.** `@noframes` is gone: gate widgets that live in an iframe get clicked too
+  (inside frames the script only clicks — no badge, no navigation shortcuts).
+
 ### If a site still doesn't work
 
 1. Watch the `auto-skip` badge bottom-right — it says whether it engaged and what it clicked.
@@ -218,6 +238,7 @@ node test/run-tests.js
 # PASS  stays idle on an ordinary website
 # PASS  ignores a checkout page that has a .timer + Continue button
 # PASS  ad-gate "click the photo" step 2/3
+# PASS  timer-armed Verify with no visible countdown
 # PASS  loop guard stops after revisiting the same page
 # PASS  bookmarklet build on the blog gate
 # PASS  ignores a news article saying "30 seconds ago"

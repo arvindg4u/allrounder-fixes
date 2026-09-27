@@ -1,12 +1,11 @@
 // ==UserScript==
 // @name         Shortlink Auto-Skip (timers + auto-continue)
 // @namespace    https://github.com/arvindg4u/allrounder-fixes
-// @version      1.2.0
+// @version      1.3.0
 // @description  Automates "wait 15 seconds / wait 10 seconds / click Continue" pages on earn-per-click short URL sites: speeds up countdowns, enables + clicks the Continue/Verify/Next/Get-Link button for every step and lands you on the final destination URL. Handles blog-style gates (vplink & friends) too.
 // @author       arvindg4u
 // @license      MIT
 // @run-at       document-start
-// @noframes
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=gplinks.com
 // @match        *://*/*
 // @grant        GM_addStyle
@@ -55,6 +54,7 @@
         //  aggressive -> run on every page in KNOWN_HOSTS + anything that has a countdown
         genericMode: 'heuristic',
         speedUpTimers: true,
+        warpClock: true,        // also speed up Date.now()/new Date() — many gates poll wall-clock
         speedFactor: 60,        // 15000ms countdown -> ~250ms
         minDelayToSpeed: 300,   // don't touch animation-ish timers
         maxDelayToSpeed: 300000,
@@ -83,6 +83,10 @@
 
     const PAGE = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
     const HOST = location.hostname.replace(/^www\./, '');
+    // Gate widgets ("Verify") are often inside an iframe, so we no longer use
+    // @noframes — but inside a frame we only click; no badge, no navigation.
+    let IN_FRAME = false;
+    try { IN_FRAME = window.top !== window.self; } catch (e) { IN_FRAME = true; }
 
     // Native timers captured BEFORE we accelerate the page's ones, so the
     // script's own scheduling keeps real-world seconds.
@@ -159,14 +163,16 @@
 
     let pendingVerifyFlag = false;
 
-    // Elements proven useless: clicked twice with zero observable effect.
-    const deadElements = new WeakSet();
+    // Buttons that did nothing YET. Never permanent: these gates arm their
+    // Verify button only after their own timer expires, so a button that was
+    // inert 3 seconds ago is very often the right button 10 seconds later.
+    const coldElements = new WeakSet();
 
-    // element -> { sig, at, n }  (lets us click the SAME button again on the next
-    // step once its label/state changed, without ever hammering it in a loop)
+    // element -> { sig, at, n, fp }
     const clickLog = new WeakMap();
-    const RECLICK_COOLDOWN_MS = 2500;
-    const MAX_CLICKS_PER_ELEMENT = 4;
+    // attempt 1 -> retry after 2.5s, then 6s, 12s, 20s, 30s …
+    const BACKOFF_MS = [0, 2500, 6000, 12000, 20000, 30000, 45000];
+    const MAX_CLICKS_PER_ELEMENT = 7;
     let clickCount = 0;
     let started = false;
     let scanTimer = null;
@@ -185,7 +191,7 @@
     let trail = [];
     try { trail = JSON.parse(sessionStorage.getItem('sas_trail') || '[]'); } catch (e) { trail = []; }
     const seenBefore = trail.filter(u => u === HERE).length;
-    trail.push(HERE);
+    if (!IN_FRAME) trail.push(HERE);
     if (trail.length > 30) trail = trail.slice(-30);
     try { sessionStorage.setItem('sas_trail', JSON.stringify(trail)); } catch (e) { /* ignore */ }
 
@@ -219,6 +225,35 @@
             try { PAGE[name] = patched; } catch (e) { log('cannot patch', name, e); }
         });
         log('timers accelerated x' + CFG.speedFactor);
+    }
+
+    function patchClock() {
+        if (!CFG.warpClock) return;
+        try {
+            const RealDate = PAGE.Date;
+            if (!RealDate || RealDate.__sasPatched) return;
+            const realNow = RealDate.now.bind(RealDate);
+            const t0 = realNow();
+            const warp = () => Math.round(t0 + (realNow() - t0) * CFG.speedFactor);
+            const Warped = new Proxy(RealDate, {
+                construct(target, args) {
+                    return args.length === 0 ? new target(warp()) : new target(...args);
+                },
+                get(target, prop, recv) {
+                    if (prop === 'now') return warp;
+                    if (prop === '__sasPatched') return true;
+                    return Reflect.get(target, prop, recv);
+                },
+            });
+            PAGE.Date = Warped;
+            const perf = PAGE.performance;
+            if (perf && typeof perf.now === 'function') {
+                const rn = perf.now.bind(perf);
+                const p0 = rn();
+                try { perf.now = () => p0 + (rn() - p0) * CFG.speedFactor; } catch (e) { /* read-only */ }
+            }
+            log('clock warped x' + CFG.speedFactor);
+        } catch (e) { log('clock warp failed', e); }
     }
 
     const COUNTER_VARS = ['seconds', 'second', 'secs', 'sec', 'count', 'counter', 'countdown',
@@ -319,6 +354,7 @@
     }
 
     function tryShortcut() {
+        if (IN_FRAME) return false;      // navigating a frame gets us nowhere
         const dest = fromParams() || fromAdfly();
         if (dest && dest.replace(/\/$/, '') !== location.href.replace(/\/$/, '')) {
             const destHost = (() => { try { return new URL(dest).hostname.replace(/^www\./, ''); } catch (e) { return ''; } })();
@@ -389,12 +425,13 @@
     }
 
     function mayClick(el) {
-        if (deadElements.has(el)) return false;
         const rec = clickLog.get(el);
         if (!rec) return true;
         if (rec.n >= MAX_CLICKS_PER_ELEMENT) return false;
-        if (rec.sig !== signature(el)) return true;           // label/state changed -> next step
-        return (Date.now() - rec.at) > RECLICK_COOLDOWN_MS;   // same button, gentle retry
+        if (rec.sig !== signature(el)) return true;             // label/state changed -> new step
+        if (rec.fp !== pageFingerprint()) return true;          // page moved on -> worth another go
+        const wait = BACKOFF_MS[Math.min(rec.n, BACKOFF_MS.length - 1)];
+        return (Date.now() - rec.at) > wait;                    // patient retry, no hammering
     }
 
     function unlock(el) {
@@ -448,7 +485,7 @@
 
     function pendingVerify() {
         return Array.from(document.querySelectorAll('button, a, [role="button"], .btn, input[type="submit"]'))
-            .some(el => VERIFY_TEXT.test(textOf(el)) && isVisible(el) && !isDisabled(el) && mayClick(el) && !deadElements.has(el));
+            .some(el => VERIFY_TEXT.test(textOf(el)) && isVisible(el) && !isDisabled(el) && mayClick(el));
     }
 
     function score(el) {
@@ -467,6 +504,7 @@
         // Gates want Verify done BEFORE Continue; and never walk back to a page
         // this chain has already shown us (that is exactly how the loop forms).
         if (VERIFY_TEXT.test(t)) s += 15;
+        if (coldElements.has(el)) s -= 25;
         if (CONTINUE_TEXT.test(t) && pendingVerifyFlag) s -= 45;
         const href = hrefOf(el);
         if (href && trail.includes(href)) s -= 300;
@@ -511,7 +549,7 @@
         if (!el || !mayClick(el)) return false;
         if (clickCount >= CFG.maxClicksPerPage) { setBadge('click limit reached'); stop(); return false; }
         const rec = clickLog.get(el) || { n: 0 };
-        clickLog.set(el, { sig: signature(el), at: Date.now(), n: rec.n + 1 });
+        clickLog.set(el, { sig: signature(el), at: Date.now(), n: rec.n + 1, fp: pageFingerprint() });
         clickCount++;
         watchEffect(el, rec.n + 1);
         unlock(el);
@@ -524,6 +562,12 @@
     function step(loose) {
         if (!CFG.enabled) return;
         zeroCounters();
+        // Their timer is still visibly ticking: wait instead of spending clicks on
+        // a button that is not armed yet (this is what broke entiredust.in).
+        if (!loose && hasLiveCountdown()) {
+            setBadge('their timer is running — waiting for Verify to arm');
+            return;
+        }
         pendingVerifyFlag = pendingVerify();
         satisfyAdClick();
 
@@ -556,8 +600,8 @@
         NATIVE.setTimeout(() => {
             if (pageFingerprint() !== before) return;       // something moved, keep it
             if (n >= 2) {
-                deadElements.add(el);
-                log('marked dead (no effect):', textOf(el) || el.id);
+                coldElements.add(el);      // deprioritised, NOT banned — their timer may still arm it
+                log('no effect yet (will retry with backoff):', textOf(el) || el.id);
             }
         }, 3000);
     }
@@ -717,7 +761,7 @@
     }
 
     function setBadge(msg) {
-        if (!CFG.showBadge) return;
+        if (!CFG.showBadge || IN_FRAME) return;
         if (!badgeEl) {
             if (!document.body) return;
             addStyle(`#sas-badge{position:fixed;z-index:2147483647;right:12px;bottom:12px;background:#111;color:#0f6;
@@ -745,6 +789,7 @@
         (isKnownHost() || CFG.genericMode === 'aggressive');
     if (earlyEngage) {
         patchTimers();
+        patchClock();
         blockPopups();
         zeroCounters();
         if (tryShortcut()) return;
@@ -758,6 +803,7 @@
         log('engaged on', HOST, st ? '(step ' + st.cur + '/' + st.total + ')' : '');
         if (!earlyEngage) {            // late engage: heuristic said "this is a gate"
             patchTimers();
+            patchClock();
             blockPopups();
             zeroCounters();
         }

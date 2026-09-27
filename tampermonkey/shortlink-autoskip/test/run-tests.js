@@ -23,6 +23,7 @@ const strip = f => fs.readFileSync(path.join(__dirname, f), 'utf8')
 const GATE_HTML = strip('mock-shortlink.html');
 const BLOG_HTML = strip('mock-blog-gate.html');
 const ADGATE_HTML = strip('mock-adgate.html');
+const TIMED_HTML = strip('mock-timed-verify.html');
 
 function makeDom(html, url, onAd, referrer) {
     const dom = new JSDOM(html, {
@@ -153,6 +154,28 @@ function loopGuardTest() {
     });
 }
 
+// "their backend is their one timer": Verify simply does nothing until 10s of
+// wall-clock time passed, and no countdown is ever displayed. The script must
+// keep retrying (and warp the clock) instead of writing the button off.
+function timedVerifyTest() {
+    return new Promise(resolve => {
+        const dom = makeDom(TIMED_HTML, 'https://entiredust.example/studyscholorhiipss/post-9/',
+            null, 'https://vplink.in/MEIN_ID_SAFE_PANEL');
+        let navigated = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const msg = dom.window.document.getElementById('msg').textContent;
+            console.log(`${navigated ? 'PASS' : 'FAIL'}  timer-armed Verify with no visible countdown ` +
+                `(reached final: ${navigated}, page says: "${msg}")`);
+            dom.window.close();
+            resolve(navigated);
+        }, 9000);
+    });
+}
+
 function idleTest() {
     return new Promise(resolve => {
         const html = `<html><body><h1>My blog</h1><p>${'lorem ipsum dolor sit amet '.repeat(400)}</p>
@@ -176,6 +199,7 @@ function idleTest() {
     results.push(await gateTest('vplink-style blog gate (long article, hidden CONTINUE, locked href)',
         'https://rotating-partner-blog.example/studyblogs/some-post/', BLOG_HTML, 'https://vplink.in/MEIN_ID_SAFE_PANEL'));
     results.push(await adGateTest());
+    results.push(await timedVerifyTest());
     results.push(await loopGuardTest());
     results.push(await bookmarkletTest());
     results.push(await idleTest());
