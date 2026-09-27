@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Shortlink Auto-Skip (timers + auto-continue)
 // @namespace    https://github.com/arvindg4u/allrounder-fixes
-// @version      1.1.1
+// @version      1.2.0
 // @description  Automates "wait 15 seconds / wait 10 seconds / click Continue" pages on earn-per-click short URL sites: speeds up countdowns, enables + clicks the Continue/Verify/Next/Get-Link button for every step and lands you on the final destination URL. Handles blog-style gates (vplink & friends) too.
 // @author       arvindg4u
 // @license      MIT
@@ -64,6 +64,8 @@
         hardFallbackMs: 15000,  // if nothing worked in 15s, try the loose scan
         giveUpMs: 90000,        // stop scanning entirely after this long
         blockPopups: true,
+        satisfyAdClick: true,   // fire the "click the photo/ad" click WITHOUT letting it navigate
+        loopDetect: true,       // stop clicking when a gate bounces you in circles
         followRedirectParams: true,
         showBadge: true,
         debug: false,
@@ -120,7 +122,7 @@
         'vplink.in', 'vplink.co', 'jrlinks.in', 'lksfy.com', 'lksfy.in',
         'softurl.in', 'linkshortify.in', 'shrinkforearn.in', '4hi.in',
         'indianshortner.com', 'dekhe.click', 'clk.wiki', 'go.tnshort.net',
-        'onlinewish.in', 'crimejasoos.in', 'theimmigrationworld.com',
+        'onlinewish.in', 'crimejasoos.in', 'theimmigrationworld.com', 'entiredust.in',
     ].concat(G.get('customHosts', []));
 
     // Per-site fast paths (selectors that are known to be THE step button).
@@ -145,7 +147,7 @@
 
     /* ───────────────────── text matchers for buttons ─────────────────── */
 
-    const GOOD_TEXT = /(^|\b)(continue|click here to continue|click to continue|go to link|goto link|get link|get the link|generate link|create link|proceed|next|next step|skip ad|skip ads|skip|verify|human verification|i am human|i'm not a robot(?! *checkbox)|unlock|open link|full link|view link|claim link|download link|get url|start)(\b|$)/i;
+    const GOOD_TEXT = /(^|\b)(continue|click here to continue|click to continue|go to link|goto link|get link|get the link|generate link|create link|proceed|next|next step|skip ad|skip ads|skip|verify|human verification|i am human|i'm not a robot(?! *checkbox)|unlock|open link|full link|view link|claim link|download link|get url|start|jari rakhen|aage badhein)(\b|$)|जारी\s*रखें|आगे\s*बढ़ें|यहाँ?\s*क्लिक|डाउनलोड\s*लिंक|लिंक\s*पाने|सत्यापित/i;
 
     const BAD_TEXT = /(install|download app|get app|telegram|whatsapp|join|subscribe|follow|sign ?up|register|login|log in|create account|deposit|bet|casino|earn money|play now|invest|buy|offer|survey|allow|notification|vpn|antivirus|update your|cancel|back|home|report|contact|privacy|terms|disable adblock|turn off)/i;
 
@@ -154,6 +156,11 @@
     const COUNTDOWN_TEXT = /(please wait|wait\s*\d|\d{1,3}\s*(seconds?|secs?)\b|countdown|count down|generating (your )?link|preparing (your )?link|link is being generated)/i;
 
     /* ───────────────────────── state / guards ───────────────────────── */
+
+    let pendingVerifyFlag = false;
+
+    // Elements proven useless: clicked twice with zero observable effect.
+    const deadElements = new WeakSet();
 
     // element -> { sig, at, n }  (lets us click the SAME button again on the next
     // step once its label/state changed, without ever hammering it in a loop)
@@ -170,7 +177,25 @@
     const hopKey = 'sas_hops_' + HOST;
     const hops = (parseInt(sessionStorage.getItem(hopKey) || '0', 10) || 0) + 1;
     try { sessionStorage.setItem(hopKey, String(hops)); } catch (e) { /* ignore */ }
-    const loopTripped = hops > 12;
+
+    // Trail of pages this chain has already shown us. Gates like entiredust.in
+    // ("step 2/3" + "click the photo, wait 15s, come back") shuffle you between a
+    // handful of articles forever; revisiting a URL is the tell.
+    const HERE = location.href.split('#')[0];
+    let trail = [];
+    try { trail = JSON.parse(sessionStorage.getItem('sas_trail') || '[]'); } catch (e) { trail = []; }
+    const seenBefore = trail.filter(u => u === HERE).length;
+    trail.push(HERE);
+    if (trail.length > 30) trail = trail.slice(-30);
+    try { sessionStorage.setItem('sas_trail', JSON.stringify(trail)); } catch (e) { /* ignore */ }
+
+    // "You are currently on step 2/3" -> track real progress, not just clicks.
+    function readStep() {
+        const m = bodyText().slice(0, 5000).match(/step\s*(\d{1,2})\s*(?:\/|of|out of)\s*(\d{1,2})/i);
+        return m ? { cur: Number(m[1]), total: Number(m[2]) } : null;
+    }
+
+    const loopTripped = hops > 15 || (CFG.loopDetect && seenBefore >= 2);
 
     /* ───────────────── layer 1: timer acceleration ──────────────────── */
 
@@ -319,6 +344,33 @@
         return true;
     }
 
+    // Visible page text. innerText is what we want (it ignores <script>/<style>);
+    // where it is unavailable we walk the text nodes ourselves instead of using
+    // textContent, which would happily include inline script source.
+    let btCache = { at: 0, val: '' };
+    function bodyText() {
+        const b = document.body;
+        if (!b) return '';
+        if (typeof b.innerText === 'string') return b.innerText;
+        if (Date.now() - btCache.at < 400) return btCache.val;
+        let out = '';
+        try {
+            const walker = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, {
+                acceptNode(node) {
+                    const tag = node.parentNode && node.parentNode.nodeName;
+                    return (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE')
+                        ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+                },
+            });
+            const parts = [];
+            let n;
+            while ((n = walker.nextNode())) parts.push(n.nodeValue);
+            out = parts.join(' ');
+        } catch (e) { out = ''; }
+        btCache = { at: Date.now(), val: out };
+        return out;
+    }
+
     function textOf(el) {
         return ((el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || '') + '')
             .replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -337,6 +389,7 @@
     }
 
     function mayClick(el) {
+        if (deadElements.has(el)) return false;
         const rec = clickLog.get(el);
         if (!rec) return true;
         if (rec.n >= MAX_CLICKS_PER_ELEMENT) return false;
@@ -385,6 +438,19 @@
         }
     }
 
+    const VERIFY_TEXT = /(verify|verification|i am human|सत्यापित|captcha)/i;
+    const CONTINUE_TEXT = /(continue|next|proceed|go to link|get\s*link|जारी\s*रखें|आगे\s*बढ़ें)/i;
+
+    function hrefOf(el) {
+        try { return el.tagName === 'A' && el.getAttribute('href') ? new URL(el.getAttribute('href'), location.href).href.split('#')[0] : ''; }
+        catch (e) { return ''; }
+    }
+
+    function pendingVerify() {
+        return Array.from(document.querySelectorAll('button, a, [role="button"], .btn, input[type="submit"]'))
+            .some(el => VERIFY_TEXT.test(textOf(el)) && isVisible(el) && !isDisabled(el) && mayClick(el) && !deadElements.has(el));
+    }
+
     function score(el) {
         const t = textOf(el);
         const meta = (el.id + ' ' + (typeof el.className === 'string' ? el.className : '') + ' ' + (el.name || '')).toLowerCase();
@@ -398,6 +464,12 @@
         if (BAD_TEXT.test(t)) s -= 120;
         if (el.tagName === 'A' && AD_HOSTS.test(el.href || '')) s -= 200;
         if (t.length > 45) s -= 20;
+        // Gates want Verify done BEFORE Continue; and never walk back to a page
+        // this chain has already shown us (that is exactly how the loop forms).
+        if (VERIFY_TEXT.test(t)) s += 15;
+        if (CONTINUE_TEXT.test(t) && pendingVerifyFlag) s -= 45;
+        const href = hrefOf(el);
+        if (href && trail.includes(href)) s -= 300;
         return s;
     }
 
@@ -441,6 +513,7 @@
         const rec = clickLog.get(el) || { n: 0 };
         clickLog.set(el, { sig: signature(el), at: Date.now(), n: rec.n + 1 });
         clickCount++;
+        watchEffect(el, rec.n + 1);
         unlock(el);
         realClick(el);
         log('clicked', why, '->', textOf(el) || el.id || el.className);
@@ -451,6 +524,8 @@
     function step(loose) {
         if (!CFG.enabled) return;
         zeroCounters();
+        pendingVerifyFlag = pendingVerify();
+        satisfyAdClick();
 
         for (const el of siteSelectorTargets()) {
             if (isVisible(el) || loose) { if (clickOnce(el, 'site-rule')) return; }
@@ -465,6 +540,56 @@
                 .find(x => { try { return new URL(x.href).hostname.replace(/^www\./, '') !== HOST; } catch (e) { return false; } });
             if (a) clickOnce(a, 'destination-link');
         }
+    }
+
+    // Did that click change anything at all? (url, step counter, page text, new
+    // buttons). If not — twice — stop clicking it, it is decoration or an ad hook.
+    function pageFingerprint() {
+        const st = readStep();
+        return [location.href, st ? st.cur + '/' + st.total : '',
+            bodyText().length,
+            document.querySelectorAll('a,button').length].join('|');
+    }
+
+    function watchEffect(el, n) {
+        const before = pageFingerprint();
+        NATIVE.setTimeout(() => {
+            if (pageFingerprint() !== before) return;       // something moved, keep it
+            if (n >= 2) {
+                deadElements.add(el);
+                log('marked dead (no effect):', textOf(el) || el.id);
+            }
+        }, 3000);
+    }
+
+    // "क्लिक करें फोटो पर, 15 सेकंड रुकें" / "click the image and come back":
+    // fire the click so their handler marks you as verified, but block the actual
+    // navigation and the popup, so you never land on the ad.
+    let adClickDone = false;
+    function satisfyAdClick() {
+        if (!CFG.satisfyAdClick || adClickDone) return;
+        const txt = bodyText().slice(0, 6000);
+        const asksForAdClick = /(click|tap|क्लिक).{0,80}(image|photo|picture|banner|ad\b|ads\b|फोटो|तस्वीर|इमेज|विज्ञापन)/i.test(txt) ||
+            /(फोटो|इमेज|तस्वीर).{0,40}क्लिक/i.test(txt);
+        if (!asksForAdClick) return;
+
+        const imgs = Array.from(document.querySelectorAll('a img, a[target="_blank"] img, .gate img'))
+            .map(img => img.closest('a') || img)
+            .filter(el => isVisible(el))
+            .slice(0, 3);
+        if (!imgs.length) return;
+
+        adClickDone = true;
+        setBadge('satisfying the "click the image" check (no ad opened)');
+        // Only preventDefault (never stopPropagation) — the page's own handler MUST
+        // still run, that is the whole point; we just refuse to go to the ad.
+        const block = (e) => e.preventDefault();
+        document.addEventListener('click', block, true);
+        imgs.forEach(el => {
+            try { realClick(el); } catch (e) { /* ignore */ }
+            log('ad-gate click fired on', el.tagName, (el.getAttribute && el.getAttribute('href')) || '');
+        });
+        NATIVE.setTimeout(() => document.removeEventListener('click', block, true), 50);
     }
 
     function nudgeScroll() {
@@ -545,17 +670,17 @@
     // Score-based: a gate needs at least two independent signals. This is what
     // lets it fire on a 20 000-word "blog" page that hides a 15s timer inside.
     function gateSignals() {
-        const bodyText = (document.body ? document.body.innerText || '' : '');
-        const head = bodyText.slice(0, 3000);
+        const text = bodyText();
+        const head = text.slice(0, 3000);
         const sig = [];
-        if (COUNTDOWN_TEXT.test(head) || COUNTDOWN_TEXT.test(bodyText.slice(0, 20000))) sig.push('countdown-text');
+        if (COUNTDOWN_TEXT.test(head) || COUNTDOWN_TEXT.test(text.slice(0, 20000))) sig.push('countdown-text');
         if (document.querySelector('#timer,.timer,#countdown,.countdown,#count,.counter,[id*="timer" i],[class*="countdown" i],[id*="count" i]')) sig.push('timer-element');
         if (hasLiveCountdown()) sig.push('live-countdown');
-        if (/(click|scroll).{0,40}(below|down).{0,40}(continue|get\s*link\b|wait)|wait.{0,25}\d{1,3}.{0,25}second|get\s*link\b.{0,30}(below|button|here)|(click|wait).{0,30}to get (the )?link/i.test(bodyText.slice(0, 20000))) sig.push('gate-copy');
+        if (/(click|scroll).{0,40}(below|down).{0,40}(continue|get\s*link\b|wait)|wait.{0,25}\d{1,3}.{0,25}second|get\s*link\b.{0,30}(below|button|here)|(click|wait).{0,30}to get (the )?link/i.test(text.slice(0, 20000))) sig.push('gate-copy');
         if (candidates(true).length > 0) sig.push('step-button');
         if (document.querySelector('button[disabled], input[disabled][type="submit"], .btn.disabled, [aria-disabled="true"], a[href="#"], a[href^="javascript:"]')) sig.push('locked-button');
         if (cameFromShortener()) sig.push('shortener-referrer');
-        if (bodyText.length < 6000) sig.push('tiny-page');
+        if (text.length < 6000) sig.push('tiny-page');
         return sig;
     }
 
@@ -573,7 +698,11 @@
 
     function shouldRun() {
         if (!CFG.enabled || CFG.genericMode === 'off') return false;
-        if (loopTripped) { log('loop guard tripped on', HOST); return false; }
+        if (loopTripped) {
+            log('loop guard tripped on', HOST, '(seen this page', seenBefore, 'times)');
+            NATIVE.setTimeout(() => setBadge('loop detected — this gate needs one manual step (click its image/ad once, then Continue)'), 800);
+            return false;
+        }
         if (isKnownHost()) return true;
         if (CFG.genericMode === 'aggressive') return true;
         return looksLikeGate();
@@ -625,13 +754,14 @@
         if (started) return;
         if (!shouldRun()) { log('not a shortlink gate, idling on', HOST); return; }
         started = true;
-        log('engaged on', HOST);
+        const st = readStep();
+        log('engaged on', HOST, st ? '(step ' + st.cur + '/' + st.total + ')' : '');
         if (!earlyEngage) {            // late engage: heuristic said "this is a gate"
             patchTimers();
             blockPopups();
             zeroCounters();
         }
-        setBadge('waiting for the step button…');
+        setBadge((st ? 'step ' + st.cur + '/' + st.total + ' — ' : '') + 'waiting for the step button…');
 
         if (tryShortcut()) return;
 

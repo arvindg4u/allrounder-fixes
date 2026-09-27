@@ -1,6 +1,6 @@
 # Shortlink Auto-Skip — Tampermonkey userscript
 
-**v1.1.1** — handles vplink-style "partner blog" gates; clean metadata block (no ESLint warnings).
+**v1.2.0** — survives the *"click the photo, wait 15s, come back"* + `step 2/3` ad-gates (entiredust.in & co.) and never spins in a loop again.
 
 Automates the "wait 15 seconds → Continue → wait 10 seconds → Click here to continue → Get Link"
 chain used by earn-per-click short URL sites, so you land on the **final destination URL / file**
@@ -11,6 +11,7 @@ without babysitting the tab.
 | [`shortlink-autoskip.user.js`](shortlink-autoskip.user.js) | The userscript you install in Tampermonkey |
 | `test/mock-shortlink.html` | A fake 3-step gate (15s → 10s → 5s) to verify it works, plus decoy ad buttons |
 | `test/mock-blog-gate.html` | A **vplink-style** gate: long article, JS-injected countdown, hidden `CONTINUE` with a locked `href="#"` |
+| `test/mock-adgate.html` | An **entiredust-style** `step 2/3` gate: Hindi "click the photo" ad check, `Verify`, and a loop-back link |
 | `test/final.html` | The "final URL" the mock redirects to |
 | `test/run-tests.js` | Headless jsdom tests (no browser needed) |
 | `bookmarklet/` | Builder + ready-made bookmarklet for browsers where Tampermonkey is blocked |
@@ -120,6 +121,32 @@ Quick way to confirm the script is alive: open any shortlink and look for the sm
 lint nag about the comment lines inside the metadata block; fixed in 1.1.1, it never affected
 execution.)*
 
+## Ad-visit gates and loops (v1.2)
+
+Some gates (`entiredust.in`, and everything else built on the same WordPress kit) add a step that
+isn't a timer at all:
+
+> **You are currently on step 2/3.**
+> ▼ LINK पाने और DOWNLOAD करने के लिए, **फोटो पर क्लिक करें, 15 सेकंड रुकें और फिर इसी पेज पर वापस आएं**
+> **Verify** — Scroll down & click on **Continue** button for your destination link
+
+`Verify` silently does nothing until their script has seen a click on the ad image, and the
+`Continue` at the bottom links to *another article on the same blog* — so you get shuffled between
+posts forever. v1.2 handles all of it:
+
+* **Ad-click satisfier** — when the page asks you to click a photo/banner (English *or* Hindi), the
+  script fires a real click on that image so their "you visited the ad" flag flips, while
+  `preventDefault` + popup blocking make sure **the ad itself never opens**.
+* **Verify before Continue** — verification buttons get priority; `Continue` is held back until no
+  unclicked `Verify` remains.
+* **Dead-element blacklist** — a button clicked twice with *zero* observable effect (URL, step
+  counter, page text, button count all unchanged) is never clicked again.
+* **URL trail + loop detection** — every page of the chain is remembered; links back to a page you
+  already passed score −300, and if the same page shows up 3 times the script stops and tells you:
+  *"loop detected — this gate needs one manual step"* instead of burning clicks.
+* **Step awareness** — `step 2/3` is parsed and shown on the badge, so you can see real progress.
+* Multilingual button text: जारी रखें, आगे बढ़ें, यहाँ क्लिक, डाउनलोड लिंक, सत्यापित …
+
 ### If a site still doesn't work
 
 1. Watch the `auto-skip` badge bottom-right — it says whether it engaged and what it clicked.
@@ -190,6 +217,8 @@ node test/run-tests.js
 # PASS  vplink-style blog gate (long article, hidden CONTINUE, locked href)
 # PASS  stays idle on an ordinary website
 # PASS  ignores a checkout page that has a .timer + Continue button
+# PASS  ad-gate "click the photo" step 2/3
+# PASS  loop guard stops after revisiting the same page
 # PASS  bookmarklet build on the blog gate
 # PASS  ignores a news article saying "30 seconds ago"
 ```

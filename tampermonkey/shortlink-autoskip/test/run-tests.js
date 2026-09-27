@@ -22,6 +22,7 @@ const strip = f => fs.readFileSync(path.join(__dirname, f), 'utf8')
     .replace(/<script>\s*var s = document[\s\S]*?<\/script>/, '');
 const GATE_HTML = strip('mock-shortlink.html');
 const BLOG_HTML = strip('mock-blog-gate.html');
+const ADGATE_HTML = strip('mock-adgate.html');
 
 function makeDom(html, url, onAd, referrer) {
     const dom = new JSDOM(html, {
@@ -98,6 +99,60 @@ function bookmarkletTest() {
     });
 }
 
+// entiredust.in-style step 2/3: "click the photo, wait 15s, come back" + Verify
+// + a Continue that links back to an article we already saw (the loop trap).
+function adGateTest() {
+    return new Promise(resolve => {
+        const url = 'https://entiredust.example/studyscholorhiipss/post-2/';
+        const dom = makeDom(ADGATE_HTML, url, null, 'https://vplink.in/MEIN_ID_SAFE_PANEL');
+        const w = dom.window;
+        // pretend the chain already went through the article the loop-back points to
+        try {
+            w.sessionStorage.setItem('sas_trail', JSON.stringify([
+                'https://entiredust.example/studyscholorhiipss/already-seen-article.html',
+            ]));
+        } catch (e) { /* ignore */ }
+        let navigated = false, loopClicked = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        w.document.getElementById('loopback').addEventListener('click', () => { loopClicked = true; });
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const adNavigated = !!w.__adNavigated;
+            const adRegistered = !!w.__adClicked;
+            const ok = navigated && adRegistered && !adNavigated && !loopClicked;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  ad-gate "click the photo" step 2/3 ` +
+                `(reached final: ${navigated}, ad-click registered: ${adRegistered}, ` +
+                `opened the ad: ${adNavigated}, took the loop link: ${loopClicked})`);
+            w.close();
+            resolve(ok);
+        }, 9000);
+    });
+}
+
+// A gate that just bounces: the script must give up instead of spinning.
+function loopGuardTest() {
+    return new Promise(resolve => {
+        const url = 'https://loopy.example/step/';
+        const dom = makeDom(ADGATE_HTML, url);
+        const w = dom.window;
+        try { w.sessionStorage.setItem('sas_trail', JSON.stringify([url, url, url])); } catch (e) { /* ignore */ }
+        const clicks = [];
+        w.document.querySelectorAll('a, button').forEach(el =>
+            el.addEventListener('click', () => clicks.push(el.id || el.textContent)));
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const badge = w.document.getElementById('sas-badge');
+            const ok = clicks.length === 0;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  loop guard stops after revisiting the same page` +
+                (badge ? ` (badge: "${badge.textContent.replace('auto-skip', '')}")` : ''), clicks);
+            w.close();
+            resolve(ok);
+        }, 5000);
+    });
+}
+
 function idleTest() {
     return new Promise(resolve => {
         const html = `<html><body><h1>My blog</h1><p>${'lorem ipsum dolor sit amet '.repeat(400)}</p>
@@ -120,6 +175,8 @@ function idleTest() {
     results.push(await gateTest('unknown host, heuristic detection', 'https://some-random-earn-link.xyz/abc'));
     results.push(await gateTest('vplink-style blog gate (long article, hidden CONTINUE, locked href)',
         'https://rotating-partner-blog.example/studyblogs/some-post/', BLOG_HTML, 'https://vplink.in/MEIN_ID_SAFE_PANEL'));
+    results.push(await adGateTest());
+    results.push(await loopGuardTest());
     results.push(await bookmarkletTest());
     results.push(await idleTest());
     results.push(await noFalsePositiveTest('ignores a checkout page that has a .timer + Continue button',
