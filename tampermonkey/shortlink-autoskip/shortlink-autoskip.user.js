@@ -1,17 +1,14 @@
 // ==UserScript==
 // @name         Shortlink Auto-Skip (timers + auto-continue)
 // @namespace    https://github.com/arvindg4u/allrounder-fixes
-// @version      1.1.0
+// @version      1.1.1
 // @description  Automates "wait 15 seconds / wait 10 seconds / click Continue" pages on earn-per-click short URL sites: speeds up countdowns, enables + clicks the Continue/Verify/Next/Get-Link button for every step and lands you on the final destination URL. Handles blog-style gates (vplink & friends) too.
 // @author       arvindg4u
 // @license      MIT
 // @run-at       document-start
 // @noframes
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=gplinks.com
-//
-// ── Generic catch-all for "earn" shorteners (heuristic mode keeps it safe) ──
 // @match        *://*/*
-//
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -21,6 +18,9 @@
 // ==/UserScript==
 
 /*
+ * NOTE: @match *://*\/* is a deliberate catch-all — the script stays completely
+ * idle unless a page is detected as a shortlink gate (see looksLikeGate below).
+ *
  * HOW IT WORKS (3 layers, in order of reliability)
  *
  *   1. Timer layer   – patches setTimeout/setInterval on the page so a 15s / 10s

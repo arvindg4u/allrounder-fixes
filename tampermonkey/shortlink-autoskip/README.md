@@ -1,6 +1,6 @@
 # Shortlink Auto-Skip — Tampermonkey userscript
 
-**v1.1** — now handles vplink-style "partner blog" gates too.
+**v1.1.1** — handles vplink-style "partner blog" gates; clean metadata block (no ESLint warnings).
 
 Automates the "wait 15 seconds → Continue → wait 10 seconds → Click here to continue → Get Link"
 chain used by earn-per-click short URL sites, so you land on the **final destination URL / file**
@@ -67,6 +67,30 @@ v1.0 ignored those pages. v1.1 handles them:
 What it still **cannot** do: gates that require a genuine ad visit before they mint the token
 (*"click the ad and come back"*), image/math captchas, or server-side IP rate limits. Those are
 server-checked, not client-side timers.
+
+### ⚠ Nothing happens at all? Check this first (Android / Kiwi / Chrome)
+
+If Tampermonkey shows the banner **"Please enable the `Allow User Scripts` extension setting"**,
+then *no userscript runs at all* — the script isn't broken, the browser is blocking it.
+Chrome-based browsers (Kiwi, Edge, Chrome 120+) require one of these:
+
+1. Open `chrome://extensions` (Kiwi: ⋮ menu → **Extensions**).
+2. Turn on **Developer mode** (toggle at the top of that page).
+3. Chrome/Kiwi 138 or newer: tap **Tampermonkey → Details** and turn on
+   **"Allow User Scripts"** (the per-extension toggle the banner is talking about).
+4. Fully close and reopen the browser, then reload the Tampermonkey dashboard — the banner
+   must be gone before anything can run.
+
+If your build has no such toggle, **Firefox for Android + Tampermonkey** has no restriction and
+runs this script as-is (Kiwi is discontinued and stuck on an old Chromium).
+
+Quick way to confirm the script is alive: open any shortlink and look for the small dark
+`auto-skip` badge in the bottom-right corner. No badge = the browser is still blocking userscripts
+(or the page wasn't detected as a gate).
+
+*(The red ESLint marker in the Tampermonkey editor — "Attributes should begin with @" — was only a
+lint nag about the comment lines inside the metadata block; fixed in 1.1.1, it never affected
+execution.)*
 
 ### If a site still doesn't work
 
