@@ -52,6 +52,18 @@ try {
 const bookmarklet = 'javascript:' + encodeURIComponent(finalCode);
 fs.writeFileSync(path.join(__dirname, 'shortlink-autoskip.bookmarklet.txt'), bookmarklet);
 
+/* ---------- second bookmarklet: the diagnostics collector ---------- */
+const diagSrc = fs.readFileSync(path.join(DIR, 'diagnose', 'diagnose.js'), 'utf8');
+new Function(diagSrc);
+let diagCode = diagSrc;
+try {
+    const { minify_sync } = require('terser');
+    const o = minify_sync(diagSrc, { compress: { passes: 2 }, mangle: true, format: { comments: false } });
+    if (o.code) diagCode = o.code;
+} catch (e) { /* keep unminified */ }
+const diagBm = 'javascript:' + encodeURIComponent(diagCode);
+fs.writeFileSync(path.join(DIR, 'diagnose', 'diagnose.bookmarklet.txt'), diagBm);
+
 const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -89,6 +101,17 @@ Tampermonkey is blocked by <em>“Allow User Scripts”</em>.</p>
 </div>
 
 <div class="card">
+  <h2>🩺 Diagnostics bookmarklet (when a gate still wins)</h2>
+  <p>Install this one the same way, name it <code>diag</code>, and tap it <b>on the stuck page</b>.
+  It shows a panel with the page's buttons, timers, storage flags and the gate's own inline
+  JavaScript — <b>Copy</b> or <b>Download .txt</b> it and send it over so an exact rule can be written.
+  Nothing is uploaded anywhere.</p>
+  <p><a class="bm" id="bmd" href="">🩺 Auto-Skip DIAGNOSE</a>
+     <button id="copyd">Copy diagnostics bookmarklet</button> <span id="doned" class="ok"></span></p>
+  <textarea id="srcd" readonly></textarea>
+</div>
+
+<div class="card">
   <h2>What happens then</h2>
   <p>A small <code>auto-skip</code> badge appears bottom-right, countdowns are fast-forwarded and the
   Continue / Verify / Get&nbsp;Link buttons are clicked for you until the final URL loads. Tap the badge to stop.
@@ -99,6 +122,14 @@ Tampermonkey is blocked by <em>“Allow User Scripts”</em>.</p>
 const BM = ${JSON.stringify(bookmarklet)};
 document.getElementById('src').value = BM;
 document.getElementById('bm').setAttribute('href', BM);
+const DIAG = ${JSON.stringify(diagBm)};
+document.getElementById('srcd').value = DIAG;
+document.getElementById('bmd').setAttribute('href', DIAG);
+document.getElementById('copyd').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(DIAG); }
+  catch (e) { const t = document.getElementById('srcd'); t.select(); document.execCommand('copy'); }
+  document.getElementById('doned').textContent = '✓ copied';
+});
 document.getElementById('copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(BM); }
   catch (e) { const t = document.getElementById('src'); t.select(); document.execCommand('copy'); }
@@ -108,5 +139,7 @@ document.getElementById('copy').addEventListener('click', async () => {
 </body></html>`;
 fs.writeFileSync(path.join(__dirname, 'install.html'), html);
 
+
+console.log('diagnose bytes   :', diagBm.length);
 console.log('bookmarklet bytes :', bookmarklet.length);
 console.log('written           : bookmarklet/shortlink-autoskip.bookmarklet.txt, bookmarklet/install.html');

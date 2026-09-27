@@ -17,6 +17,7 @@ without babysitting the tab.
 | `test/final.html` | The "final URL" the mock redirects to |
 | `test/run-tests.js` | Headless jsdom tests (no browser needed) |
 | `bookmarklet/` | Builder + ready-made bookmarklet for browsers where Tampermonkey is blocked |
+| `diagnose/` | One-tap page-diagnostics collector (dumps the gate's own code so an exact rule can be written) |
 
 ---
 
@@ -203,6 +204,21 @@ v1.4 implements both halves, because the two cases need opposite behaviour:
 * **Dead-end reload.** Pages that insist *"click any ad and keep it open for 15 seconds"* get one
   automatic reload (once per URL) — the standard trick for those.
 * Buttons are never machine-gunned: minimum 1.5s between clicks on the same element.
+
+## 🩺 When a gate still wins: send a diagnostics dump
+
+Guessing at a gate's internals wastes everyone's time. `diagnose/diagnose.js` (also built as
+`diagnose/diagnose.bookmarklet.txt`, and offered on `bookmarklet/install.html` as **🩺 Auto-Skip
+DIAGNOSE**) dumps, from the stuck page itself:
+
+* URL, referrer, `step x/y`, visibility/focus state, whether the script engaged and what its badge says
+* every clickable element — id, class, text, href, visible?, disabled?, inline `onclick`
+* timer/verify/step-ish elements, iframes (and whether they're same-origin)
+* **the gate's own inline `<script>` source** — the actual timer and verification logic
+* localStorage / sessionStorage flags, cookie names, and relevant globals
+
+It shows a panel with **Copy** and **Download .txt**. Nothing is uploaded anywhere. Send that text
+and an exact rule can be written for the site instead of another guess.
 
 ### If a site still doesn't work
 
