@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blog de notícias — etapa 1/5</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#0e1116;color:#c9d1d9;font:16px/1.7 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+ .wrap{max-width:760px;margin:0 auto;padding:22px}
+ .steps{font-weight:700;color:#8b949e}
+ .ads{background:#161b22;border:1px dashed #30363d;border-radius:10px;padding:10px;margin:14px 0;text-align:center;color:#6e7681}
+ .go{display:inline-block;background:#238636;color:#fff;font-weight:800;padding:13px 28px;border-radius:9px;border:0;cursor:pointer;font-size:17px}
+ .hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="steps">1/5</div>
+  <div class="ads">Publicidade</div>
+
+  <p><a id="voltar" href="https://rodaemotor.example/">Voltar para artigos</a></p>
+  <h1>Combustíveis alternativos: um resumo rápido</h1>
+  <p>Texto de exemplo para o teste automatizado. Este parágrafo existe apenas para dar volume à página,
+     como acontece nos blogs usados por estes encurtadores.</p>
+  <p>Outro parágrafo de exemplo, sem qualquer relação com conteúdo real, apenas para o teste.</p>
+
+  <div class="ads">Publicidade</div>
+  <p><b>Cl!qu3 n0 Anunc!0 e Agu4rd3 7 s3gund0s p4r4 pr0sseguiR</b></p>
+  <p id="nag">AGU4RD3.  BL0QU&amp;AD0? CL!QU&amp; N0 ANuNC10 P4RA C0Nt1NU4R.</p>
+  <p id="cd">Aguarde 0s...</p>
+  <div class="ads">Publicidade</div>
+
+  <p><a id="anuncio" href="https://ads.example.com/br-offer" target="_blank">Anúncio patrocinado</a></p>
+
+  <!-- the step button: obfuscated on purpose so text-matching scripts miss it -->
+  <div id="btn-wrap"><button id="go" class="go">CL!QU3 P𝗔R@ C0NT!NU𝗔R</button></div>
+  <p id="msg"></p>
+  <a id="next" class="go hide" href="final.html">F!N𝗔L!ZAR</a>
+</div>
+<script>
+(function () {
+  var realNow = Date.now.bind(Date);
+  var born = realNow();
+  document.getElementById('go').addEventListener('click', function () {
+    if (realNow() - born < 700) {          // their 7s, scaled down for the test
+      document.getElementById('msg').textContent = 'Aguarde mais um pouco…';
+      window.__tooEarly = (window.__tooEarly || 0) + 1;
+      return;
+    }
+    window.__proceeded = true;
+    document.getElementById('msg').textContent = 'Pronto!';
+    document.getElementById('next').classList.remove('hide');
+  });
+  document.getElementById('anuncio').addEventListener('click', function () { window.__adClicked = true; });
+})();
+</script>
+<script>
+if (new URLSearchParams(location.search).get('auto') === '1') {
+  var s = document.createElement('script'); s.src = '../shortlink-autoskip.user.js'; document.body.appendChild(s);
+}
+</script>
+</body>
+</html>
