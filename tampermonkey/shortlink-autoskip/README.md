@@ -1,0 +1,109 @@
+# Shortlink Auto-Skip — Tampermonkey userscript
+
+Automates the "wait 15 seconds → Continue → wait 10 seconds → Click here to continue → Get Link"
+chain used by earn-per-click short URL sites, so you land on the **final destination URL / file**
+without babysitting the tab.
+
+| File | What it is |
+| --- | --- |
+| [`shortlink-autoskip.user.js`](shortlink-autoskip.user.js) | The userscript you install in Tampermonkey |
+| `test/mock-shortlink.html` | A fake 3-step gate (15s → 10s → 5s) to verify it works, plus decoy ad buttons |
+| `test/final.html` | The "final URL" the mock redirects to |
+| `test/run-tests.js` | Headless jsdom tests (no browser needed) |
+
+---
+
+## Install
+
+1. Install **Tampermonkey** (Chrome/Edge/Firefox/Brave) — or Violentmonkey, it works there too.
+2. Open the raw file and Tampermonkey will offer to install it:
+   `https://raw.githubusercontent.com/arvindg4u/allrounder-fixes/<branch>/tampermonkey/shortlink-autoskip/shortlink-autoskip.user.js`
+   Or: Tampermonkey dashboard → **+** (new script) → paste the whole file → **File ▸ Save** (Ctrl+S).
+3. Make sure the script is **enabled** and that Tampermonkey has
+   *"Allow access to file URLs"* if you want to test it with the local mock page.
+
+That's it — open a short link and it runs by itself.
+
+## What it actually does
+
+Three layers, applied in order:
+
+1. **Timer layer** — patches the page's `setTimeout` / `setInterval` so a 15s or 10s countdown
+   finishes in a fraction of a second, and zeroes the usual counter globals
+   (`seconds`, `counter`, `timeleft`, …) and visible countdown labels.
+2. **Click layer** — a scanner (poll + MutationObserver) finds the step button
+   (*Continue, Click here to continue, Verify, Next, Get Link, Generate Link, Skip Ad, Go to link*),
+   removes `disabled` / `hidden` / `pointer-events:none`, and clicks it with real
+   pointer + mouse events. It repeats for **every** step until the destination loads.
+3. **Shortcut layer** — if the destination is simply sitting in the URL
+   (`?url=`, `?r=`, `?link=`, base64 in the path, AdFly `ysmm` payload, canonical link),
+   it jumps straight there and skips the whole funnel.
+
+Plus: popups / `window.open` ad tabs are blocked and `target="_blank"` is stripped from step links,
+so the flow stays in one tab.
+
+## Safety rails (why it won't break normal browsing)
+
+* **Heuristic mode (default).** The `@match *://*/*` is broad, but on an unknown site the script
+  does nothing unless the page *looks* like a gate: countdown text **and** a continue-ish button
+  **and** a small page. Ordinary websites are left completely alone — it doesn't even touch their
+  timers (timer patching only happens on a known host or once a gate is confirmed).
+* **Ad blocklist.** Buttons saying *Download App, Join Telegram, Subscribe, Register, Play now,*
+  *Deposit, Allow notifications…* score negative and are never clicked. Links pointing at known
+  ad networks are excluded too.
+* **No loops.** Each element can be clicked at most 4 times (only after its label/state changed, or
+  after a 2.5s cooldown), max 15 clicks per page, and a per-session hop counter disables the script
+  on a host that bounces you more than 12 times.
+* **Visible kill switch.** A small `auto-skip` badge appears bottom-right; click it to stop
+  immediately on that page.
+
+## Tampermonkey menu (⚙ / script icon → this script)
+
+| Command | Effect |
+| --- | --- |
+| ⏸ / ▶ Enable–Disable auto-skip | Global on/off |
+| 🔁 Mode: heuristic → aggressive → off | `aggressive` runs on every page (use only if a site is stubborn), `off` disables detection |
+| ➕ Always auto-skip *this host* | Adds the current domain to your permanent list |
+| 🗑 Clear my site list | Empties that list |
+| 🐞 Debug logs | Prints every decision to the console |
+
+Tuning knobs live in the `DEFAULTS` object at the top of the file
+(`speedFactor`, `clickIntervalMs`, `maxClicksPerPage`, `hardFallbackMs`, `giveUpMs`, …).
+
+## Built-in site list
+
+Recognised out of the box (no heuristic needed): gplinks, shrinkme, shrinkearn, adfoc.us, adf.ly,
+ouo.io, exe.io, za.gl, clk.sh / sh.st / shorte.st, tmearn, mitly, earn4link, linkpays, link4earn,
+droplink, rocklinks, link1s, gyanilinks, urlsopen, try2link, oko.sh, fc.lc, pdisk/mdisk shorteners,
+linkjust, cutt.ly and ~40 more. Anything else is handled by the heuristic — and you can pin a site
+permanently with the **➕ Always auto-skip** menu command.
+
+> Not covered: gates that need a real human step (image captcha, reCAPTCHA checkbox, math question,
+> "press the key shown"). The script waits, un-hides what it can and then shows
+> *"nothing to click — do it manually"* instead of guessing.
+
+## Test it without installing
+
+```bash
+cd tampermonkey/shortlink-autoskip
+python3 -m http.server 8080          # then open:
+# http://localhost:8080/test/mock-shortlink.html?auto=1   -> script injected, auto-skips
+# http://localhost:8080/test/mock-shortlink.html          -> plain, so you can see the 15s/10s waits
+```
+
+Headless version (CI-friendly):
+
+```bash
+npm i jsdom
+node test/run-tests.js
+# PASS  known shortener host (gplinks.com)
+# PASS  unknown host, heuristic detection
+# PASS  stays idle on an ordinary website
+```
+
+## Notes
+
+Shortlink pages fund themselves with ads. Skipping them is your call — this only automates clicks
+you would otherwise make yourself, in your own browser. Some services will detect unusually fast
+completions and may block the link; if that happens, lower `speedFactor` (e.g. `3`) so the countdown
+still takes a couple of seconds.
