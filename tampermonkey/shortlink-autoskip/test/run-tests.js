@@ -17,12 +17,15 @@ catch (e) { console.error('Install jsdom first:  npm i jsdom'); process.exit(2);
 
 const DIR = path.join(__dirname, '..');
 const SCRIPT = fs.readFileSync(path.join(DIR, 'shortlink-autoskip.user.js'), 'utf8');
-const GATE_HTML = fs.readFileSync(path.join(__dirname, 'mock-shortlink.html'), 'utf8')
-    .replace(/<script>\s*if \(new URLSearchParams[\s\S]*?<\/script>/, ''); // drop the ?auto=1 loader
+const strip = f => fs.readFileSync(path.join(__dirname, f), 'utf8')
+    .replace(/<script>\s*if \(new URLSearchParams[\s\S]*?<\/script>/, '')   // drop the ?auto=1 loader
+    .replace(/<script>\s*var s = document[\s\S]*?<\/script>/, '');
+const GATE_HTML = strip('mock-shortlink.html');
+const BLOG_HTML = strip('mock-blog-gate.html');
 
-function makeDom(html, url, onAd) {
+function makeDom(html, url, onAd, referrer) {
     const dom = new JSDOM(html, {
-        url, runScripts: 'dangerously', pretendToBeVisual: true,
+        url, referrer, runScripts: 'dangerously', pretendToBeVisual: true,
         beforeParse(w) {
             w.alert = (m) => onAd && onAd(m);
             Object.defineProperty(w.Element.prototype, 'getBoundingClientRect', {
@@ -40,10 +43,10 @@ function inject(dom) {
     dom.window.document.body.appendChild(el);
 }
 
-function gateTest(name, url) {
+function gateTest(name, url, html, referrer) {
     return new Promise(resolve => {
         let adClicked = false, navigated = false;
-        const dom = makeDom(GATE_HTML, url, () => { adClicked = true; });
+        const dom = makeDom(html || GATE_HTML, url, () => { adClicked = true; }, referrer);
         dom.virtualConsole.on('jsdomError', e => {
             if (/Not implemented: navigation/.test(e.message)) navigated = true;
         });
@@ -54,6 +57,21 @@ function gateTest(name, url) {
             dom.window.close();
             resolve(ok);
         }, 7000);
+    });
+}
+
+function noFalsePositiveTest(name, url, html) {
+    return new Promise(resolve => {
+        const dom = makeDom(html, url);
+        const clicked = [];
+        dom.window.document.querySelectorAll('button, a').forEach(e =>
+            e.addEventListener('click', () => clicked.push(e.textContent)));
+        setTimeout(() => inject(dom), 30);
+        setTimeout(() => {
+            console.log(`${clicked.length ? 'FAIL' : 'PASS'}  ${name}`, clicked);
+            dom.window.close();
+            resolve(!clicked.length);
+        }, 4000);
     });
 }
 
@@ -77,7 +95,17 @@ function idleTest() {
     const results = [];
     results.push(await gateTest('known shortener host (gplinks.com)', 'https://gplinks.com/abc123'));
     results.push(await gateTest('unknown host, heuristic detection', 'https://some-random-earn-link.xyz/abc'));
+    results.push(await gateTest('vplink-style blog gate (long article, hidden CONTINUE, locked href)',
+        'https://rotating-partner-blog.example/studyblogs/some-post/', BLOG_HTML, 'https://vplink.in/MEIN_ID_SAFE_PANEL'));
     results.push(await idleTest());
+    results.push(await noFalsePositiveTest('ignores a checkout page that has a .timer + Continue button',
+        'https://shop.example.com/checkout',
+        `<html><body><h1>Checkout</h1><p>Delivery in 2 days. Order total 1299. Popular in the 1990s.</p>
+         <span class="timer">10</span><button id="go">Continue to payment</button></body></html>`));
+    results.push(await noFalsePositiveTest('ignores a news article saying "30 seconds ago"',
+        'https://news.example.com/article',
+        `<html><body><h1>News</h1><p>${'text '.repeat(500)} updated 30 seconds ago</p>
+         <a href="/next">Next article</a></body></html>`));
     const failed = results.filter(r => !r).length;
     console.log(failed ? `\n${failed} test(s) failed` : '\nAll tests passed');
     process.exit(failed ? 1 : 0);

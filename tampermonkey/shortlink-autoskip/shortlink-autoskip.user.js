@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Shortlink Auto-Skip (timers + auto-continue)
 // @namespace    https://github.com/arvindg4u/allrounder-fixes
-// @version      1.0.0
-// @description  Automates "wait 15 seconds / wait 10 seconds / click Continue" pages on earn-per-click short URL sites: speeds up countdowns, enables + clicks the Continue/Verify/Next/Get-Link button for every step and lands you on the final destination URL.
+// @version      1.1.0
+// @description  Automates "wait 15 seconds / wait 10 seconds / click Continue" pages on earn-per-click short URL sites: speeds up countdowns, enables + clicks the Continue/Verify/Next/Get-Link button for every step and lands you on the final destination URL. Handles blog-style gates (vplink & friends) too.
 // @author       arvindg4u
 // @license      MIT
 // @run-at       document-start
@@ -17,6 +17,7 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
+// @grant        GM_setClipboard
 // ==/UserScript==
 
 /*
@@ -115,6 +116,11 @@
         'linkjust.com', 'just2earn.com', 'urlshortx.com', 'v.gd',
         'short.pe', 'shortzon.com', 'atglinks.com', 'birdurls.com',
         'crus.link', 'dalink.in', 'earnl.xyz', 'fc.lc', 'ez4mods.com',
+        // vplink family + the "partner blog" gates it hands off to
+        'vplink.in', 'vplink.co', 'jrlinks.in', 'lksfy.com', 'lksfy.in',
+        'softurl.in', 'linkshortify.in', 'shrinkforearn.in', '4hi.in',
+        'indianshortner.com', 'dekhe.click', 'clk.wiki', 'go.tnshort.net',
+        'onlinewish.in', 'crimejasoos.in', 'theimmigrationworld.com',
     ].concat(G.get('customHosts', []));
 
     // Per-site fast paths (selectors that are known to be THE step button).
@@ -127,6 +133,14 @@
         { test: /(exe\.io|exey\.io|za\.gl|za\.uy|fc\.lc|oko\.sh|clk\.sh|sh\.st)$/, selectors: ['#invisibleCaptchaShortlink', '#btn-main', 'button.get-link', 'button[type="submit"]'] },
         { test: /linkjust\.com$/,         selectors: ['#next-timer-btn', '#next-timer-btn button'] },
         { test: /(tmearn|mitly|earn4link|linkpays|rocklinks|droplink|link1s|try2link)\./, selectors: ['#invisibleCaptchaShortlink', '#btn-main', '#next', '.get-link'] },
+        { test: /(vplink|jrlinks|lksfy|softurl|linkshortify|shrinkforearn)\./, selectors: ['#verify_button', '#VerifyBtn', '#NextBtn', '#btn-main', '#getlink', '.get-link'] },
+        // WordPress "human verification" blog gates used by vplink & co.
+        // (Soralink / tpdev / generic wp-block-button reveals)
+        { test: /.*/, selectors: [
+            '#soralink-human-verif-main', '#soralink-generate', '#getlink',
+            '.tpdev-btn', '#tp98', '#rbtn', '#btn-continue', '#continue-btn',
+            'a.skiptoken', '.wp-block-button__link[href]:not([href="#"]):not([href^="javascript"])',
+        ], blogGateOnly: true },
     ];
 
     /* ───────────────────── text matchers for buttons ─────────────────── */
@@ -137,7 +151,7 @@
 
     const AD_HOSTS = /(doubleclick|googlesyndication|googleadservices|adservice|propellerads|popads|popcash|adsterra|onclickads|revcontent|taboola|outbrain|mgid|hilltopads|monetag|clickadu|exoclick|juicyads|trafficstars|profitableratecpm|effectiveratecpm|highperformanceformat)\./i;
 
-    const COUNTDOWN_TEXT = /(please wait|wait\s*\d|\d+\s*(seconds?|secs?|s\b)|countdown|timer|generating|preparing)/i;
+    const COUNTDOWN_TEXT = /(please wait|wait\s*\d|\d{1,3}\s*(seconds?|secs?)\b|countdown|count down|generating (your )?link|preparing (your )?link|link is being generated)/i;
 
     /* ───────────────────────── state / guards ───────────────────────── */
 
@@ -400,11 +414,23 @@
     }
 
     function siteSelectorTargets() {
-        const rule = SITE_RULES.find(r => r.test.test(HOST));
-        if (!rule) return [];
         const found = [];
-        rule.selectors.forEach(sel => {
-            document.querySelectorAll(sel).forEach(el => { if (mayClick(el)) found.push(el); });
+        SITE_RULES.filter(r => r.test.test(HOST)).forEach(rule => {
+            rule.selectors.forEach(sel => {
+                let nodes = [];
+                try { nodes = Array.from(document.querySelectorAll(sel)); } catch (e) { return; }
+                nodes.forEach(el => {
+                    if (!mayClick(el)) return;
+                    if (rule.blogGateOnly) {
+                        // generic blog-gate selectors: never fire on an ad / junk button
+                        const t = textOf(el);
+                        if (BAD_TEXT.test(t)) return;
+                        if (t && !GOOD_TEXT.test(t) && t.length > 25) return;
+                        if (el.tagName === 'A' && AD_HOSTS.test(el.href || '')) return;
+                    }
+                    found.push(el);
+                });
+            });
         });
         return found;
     }
@@ -441,22 +467,108 @@
         }
     }
 
+    function nudgeScroll() {
+        try {
+            const y = window.scrollY;
+            window.scrollTo(0, Math.max(0, document.body.scrollHeight / 2));
+            NATIVE.setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 300);
+            NATIVE.setTimeout(() => window.scrollTo(0, y), 900);
+        } catch (e) { /* ignore */ }
+    }
+
+    function watchHrefReveal() {
+        const seen = new WeakMap();
+        const check = () => {
+            document.querySelectorAll('a[href]').forEach(a => {
+                const href = a.getAttribute('href') || '';
+                const prev = seen.get(a);
+                seen.set(a, href);
+                if (prev === undefined || prev === href) return;
+                const wasLocked = prev === '#' || prev === '' || prev.startsWith('javascript:');
+                if (!wasLocked || !/^https?:/i.test(href)) return;
+                if (AD_HOSTS.test(href)) return;
+                let sameHost = true;
+                try { sameHost = new URL(href, location.href).hostname.replace(/^www\./, '') === HOST; } catch (e) { /* ignore */ }
+                const t = textOf(a);
+                if (BAD_TEXT.test(t)) return;
+                if (GOOD_TEXT.test(t) || !sameHost) {
+                    log('href revealed ->', href);
+                    setBadge('link unlocked — going there');
+                    clickOnce(a, 'href-reveal') || location.assign(href);
+                }
+            });
+        };
+        check();
+        const mo = new MutationObserver(check);
+        try { mo.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['href'], childList: true }); } catch (e) { /* ignore */ }
+        NATIVE.setInterval(check, 1500);
+    }
+
     /* ─────────────────────── page qualification ─────────────────────── */
 
     function isKnownHost() {
         return KNOWN_HOSTS.some(h => HOST === h || HOST.endsWith('.' + h));
     }
 
+    // Remembers numeric labels between passes so we can spot a *live* countdown
+    // (a number that keeps going down) — the single strongest gate signal.
+    const numSnapshot = new WeakMap();
+    function hasLiveCountdown() {
+        let live = false;
+        document.querySelectorAll('span,div,b,strong,p,h1,h2,h3,h4,td,li,font').forEach(el => {
+            if (el.children.length) return;
+            const t = (el.textContent || '').trim();
+            if (!/^\d{1,3}$/.test(t)) return;
+            const n = Number(t);
+            if (n > 600) return;
+            const prev = numSnapshot.get(el);
+            if (typeof prev === 'number' && n < prev) live = true;
+            numSnapshot.set(el, n);
+        });
+        return live;
+    }
+
+    function cameFromShortener() {
+        // vplink & co. bounce you onto a rotating "partner blog" that hosts the
+        // real gate — so trust the referrer chain, not just the domain name.
+        let refHost = '';
+        try { refHost = document.referrer ? new URL(document.referrer).hostname.replace(/^www\./, '') : ''; } catch (e) { /* ignore */ }
+        if (refHost && refHost !== HOST &&
+            KNOWN_HOSTS.some(h => refHost === h || refHost.endsWith('.' + h))) return true;
+        try {
+            const chain = parseInt(sessionStorage.getItem('sas_chain') || '0', 10);
+            if (chain && Date.now() - chain < 10 * 60 * 1000) return true;   // we engaged <10min ago
+        } catch (e) { /* ignore */ }
+        return false;
+    }
+
+    // Score-based: a gate needs at least two independent signals. This is what
+    // lets it fire on a 20 000-word "blog" page that hides a 15s timer inside.
+    function gateSignals() {
+        const bodyText = (document.body ? document.body.innerText || '' : '');
+        const head = bodyText.slice(0, 3000);
+        const sig = [];
+        if (COUNTDOWN_TEXT.test(head) || COUNTDOWN_TEXT.test(bodyText.slice(0, 20000))) sig.push('countdown-text');
+        if (document.querySelector('#timer,.timer,#countdown,.countdown,#count,.counter,[id*="timer" i],[class*="countdown" i],[id*="count" i]')) sig.push('timer-element');
+        if (hasLiveCountdown()) sig.push('live-countdown');
+        if (/(click|scroll).{0,40}(below|down).{0,40}(continue|get\s*link\b|wait)|wait.{0,25}\d{1,3}.{0,25}second|get\s*link\b.{0,30}(below|button|here)|(click|wait).{0,30}to get (the )?link/i.test(bodyText.slice(0, 20000))) sig.push('gate-copy');
+        if (candidates(true).length > 0) sig.push('step-button');
+        if (document.querySelector('button[disabled], input[disabled][type="submit"], .btn.disabled, [aria-disabled="true"], a[href="#"], a[href^="javascript:"]')) sig.push('locked-button');
+        if (cameFromShortener()) sig.push('shortener-referrer');
+        if (bodyText.length < 6000) sig.push('tiny-page');
+        return sig;
+    }
+
     function looksLikeGate() {
-        const bodyText = (document.body ? document.body.innerText || '' : '').slice(0, 4000);
-        const hasCountdown = COUNTDOWN_TEXT.test(bodyText) ||
-            !!document.querySelector('#timer,.timer,#countdown,.countdown,#count,.counter,[id*="timer" i],[class*="countdown" i]');
-        // NB: loose scan — on a gate the button is usually still disabled/hidden
-        // at this point, which is exactly what we want to detect.
-        const hasStepBtn = candidates(true).length > 0 ||
-            !!document.querySelector('button[disabled], input[disabled][type="submit"], .btn.disabled, [aria-disabled="true"]');
-        const smallPage = bodyText.length < 6000; // gate pages are tiny, real sites are not
-        return hasCountdown && hasStepBtn && smallPage;
+        const sig = gateSignals();
+        const has = k => sig.includes(k);
+        // One strong signal, or the classic tiny "please wait N seconds" page.
+        const strong = has('live-countdown') || has('gate-copy') || has('shortener-referrer');
+        const weakCombo = has('countdown-text') && has('timer-element') && has('tiny-page');
+        const clickable = has('step-button') || has('locked-button');
+        const ok = (strong || weakCombo) && clickable;
+        log('gate signals:', sig.join(', ') || 'none', '=>', ok);
+        return ok;
     }
 
     function shouldRun() {
@@ -523,6 +635,16 @@
 
         if (tryShortcut()) return;
 
+        // Mark the chain so the next hop (rotating partner blog) engages too.
+        try { sessionStorage.setItem('sas_chain', String(Date.now())); } catch (e) { /* ignore */ }
+
+        // Some blog gates only reveal the button once it is scrolled into view.
+        nudgeScroll();
+
+        // Watch for a locked link turning into a real off-site href (very common:
+        // <a href="#">CONTINUE</a> gets its real href when the timer ends).
+        watchHrefReveal();
+
         NATIVE.setTimeout(() => step(false), CFG.firstClickDelayMs);
         scanTimer = NATIVE.setInterval(() => {
             if (!CFG.enabled || clickCount >= CFG.maxClicksPerPage) { stop(); return; }
@@ -572,5 +694,22 @@
         });
         GM_registerMenuCommand('🗑 Clear my site list', () => { G.set('customHosts', []); location.reload(); });
         GM_registerMenuCommand('🐞 Debug logs: ' + (CFG.debug ? 'on' : 'off'), () => { persist('debug', !CFG.debug); location.reload(); });
+        GM_registerMenuCommand('🩺 Copy gate diagnostics', () => {
+            const rows = Array.from(document.querySelectorAll('button, a, input[type="submit"], [role="button"], .btn'))
+                .map(el => ({
+                    tag: el.tagName, id: el.id || '', cls: (typeof el.className === 'string' ? el.className : '').slice(0, 60),
+                    text: textOf(el), href: (el.getAttribute && el.getAttribute('href')) || '',
+                    visible: isVisible(el), disabled: isDisabled(el), score: score(el),
+                }))
+                .filter(r => r.text || r.id)
+                .sort((a, b) => b.score - a.score).slice(0, 25);
+            const dump = JSON.stringify({
+                url: location.href, host: HOST, referrer: document.referrer,
+                engaged: started, clicks: clickCount, signals: gateSignals(), candidates: rows,
+            }, null, 2);
+            console.log(dump);
+            if (typeof GM_setClipboard === 'function') GM_setClipboard(dump, 'text');
+            setBadge('diagnostics copied to clipboard');
+        });
     }
 })();

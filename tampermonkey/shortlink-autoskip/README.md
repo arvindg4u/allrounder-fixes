@@ -1,5 +1,7 @@
 # Shortlink Auto-Skip — Tampermonkey userscript
 
+**v1.1** — now handles vplink-style "partner blog" gates too.
+
 Automates the "wait 15 seconds → Continue → wait 10 seconds → Click here to continue → Get Link"
 chain used by earn-per-click short URL sites, so you land on the **final destination URL / file**
 without babysitting the tab.
@@ -8,6 +10,7 @@ without babysitting the tab.
 | --- | --- |
 | [`shortlink-autoskip.user.js`](shortlink-autoskip.user.js) | The userscript you install in Tampermonkey |
 | `test/mock-shortlink.html` | A fake 3-step gate (15s → 10s → 5s) to verify it works, plus decoy ad buttons |
+| `test/mock-blog-gate.html` | A **vplink-style** gate: long article, JS-injected countdown, hidden `CONTINUE` with a locked `href="#"` |
 | `test/final.html` | The "final URL" the mock redirects to |
 | `test/run-tests.js` | Headless jsdom tests (no browser needed) |
 
@@ -42,6 +45,38 @@ Three layers, applied in order:
 Plus: popups / `window.open` ad tabs are blocked and `target="_blank"` is stripped from step links,
 so the flow stays in one tab.
 
+## vplink.in and other "partner blog" shorteners (v1.1)
+
+`vplink.in`, `jrlinks`, `lksfy`, `softurl`, `shrinkforearn` … don't show the gate on their own domain —
+they bounce you to a **rotating partner blog** (`onlinewish.in`, `crimejasoos.in`,
+`theimmigrationworld.com`, new ones every week) where the timer is injected by JavaScript
+*inside a 20 000-word article*, and the `CONTINUE` link starts as `<a href="#">` hidden in the page.
+v1.0 ignored those pages. v1.1 handles them:
+
+* **Signal-based gate detection** instead of "the page must be small": a *live* countdown (a number
+  that actually ticks down), gate copy like *"CLICK BELOW & WAIT 15 SECONDS TO GET LINK"*, or a
+  referrer/hop chain coming from a shortener — any one of those plus a locked/step button engages it.
+* **Referrer chaining** – after the script engages once, the next hop (whatever random blog domain
+  it is) is treated as part of the same chain for 10 minutes, so rotating domains don't matter.
+* **Locked-href watcher** – when `href="#"` (or a `javascript:` stub) turns into a real off-site URL,
+  it follows it immediately.
+* **Reveal helpers** – un-hides `display:none` buttons and nudges the page scroll, because several of
+  these gates only reveal `CONTINUE` when it scrolls into view.
+* Built-in host list now includes vplink & friends and the known partner blogs.
+
+What it still **cannot** do: gates that require a genuine ad visit before they mint the token
+(*"click the ad and come back"*), image/math captchas, or server-side IP rate limits. Those are
+server-checked, not client-side timers.
+
+### If a site still doesn't work
+
+1. Watch the `auto-skip` badge bottom-right — it says whether it engaged and what it clicked.
+2. Tampermonkey menu → **🔁 Mode: heuristic → aggressive** (forces it to run on that page), and/or
+   **➕ Always auto-skip <host>** on both the shortener *and* the blog it lands on.
+3. Still stuck? Menu → **🩺 Copy gate diagnostics** — it copies the URL, referrer, detected signals
+   and the top 25 clickable elements (id/class/text/score) to your clipboard. Paste that and an exact
+   site rule can be added to `SITE_RULES`.
+
 ## Safety rails (why it won't break normal browsing)
 
 * **Heuristic mode (default).** The `@match *://*/*` is broad, but on an unknown site the script
@@ -65,7 +100,8 @@ so the flow stays in one tab.
 | 🔁 Mode: heuristic → aggressive → off | `aggressive` runs on every page (use only if a site is stubborn), `off` disables detection |
 | ➕ Always auto-skip *this host* | Adds the current domain to your permanent list |
 | 🗑 Clear my site list | Empties that list |
-| 🐞 Debug logs | Prints every decision to the console |
+| 🐞 Debug logs | Prints every decision (including gate signals) to the console |
+| 🩺 Copy gate diagnostics | Copies a JSON dump of the page's buttons + detected signals for bug reports |
 
 Tuning knobs live in the `DEFAULTS` object at the top of the file
 (`speedFactor`, `clickIntervalMs`, `maxClicksPerPage`, `hardFallbackMs`, `giveUpMs`, …).
@@ -87,8 +123,9 @@ permanently with the **➕ Always auto-skip** menu command.
 ```bash
 cd tampermonkey/shortlink-autoskip
 python3 -m http.server 8080          # then open:
-# http://localhost:8080/test/mock-shortlink.html?auto=1   -> script injected, auto-skips
-# http://localhost:8080/test/mock-shortlink.html          -> plain, so you can see the 15s/10s waits
+# http://localhost:8080/test/mock-shortlink.html?auto=1   -> classic 15s/10s/5s gate, auto-skipped
+# http://localhost:8080/test/mock-blog-gate.html?auto=1   -> vplink-style blog gate, auto-skipped
+# http://localhost:8080/test/mock-shortlink.html          -> plain, so you can see the waits
 ```
 
 Headless version (CI-friendly):
@@ -98,7 +135,10 @@ npm i jsdom
 node test/run-tests.js
 # PASS  known shortener host (gplinks.com)
 # PASS  unknown host, heuristic detection
+# PASS  vplink-style blog gate (long article, hidden CONTINUE, locked href)
 # PASS  stays idle on an ordinary website
+# PASS  ignores a checkout page that has a .timer + Continue button
+# PASS  ignores a news article saying "30 seconds ago"
 ```
 
 ## Notes
