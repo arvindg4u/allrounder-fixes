@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock shortlink gate — auto-skip test</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0e1116; color:#e6edf3; font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         display:flex; min-height:100vh; align-items:center; justify-content:center; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:14px; padding:28px; width:min(520px,92vw); text-align:center; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .step { color:#8b949e; font-size:13px; letter-spacing:.08em; text-transform:uppercase; }
+  .wait { font-size:15px; margin:22px 0 8px; color:#c9d1d9; }
+  .count { font-size:46px; font-weight:700; color:#58a6ff; }
+  button { font:inherit; font-weight:600; padding:12px 22px; border-radius:9px; border:0; cursor:pointer; margin:6px; }
+  .primary { background:#238636; color:#fff; }
+  .primary[disabled] { background:#21262d; color:#6e7681; cursor:not-allowed; }
+  .hidden { display:none; }
+  .ads { margin-top:22px; padding-top:16px; border-top:1px dashed #30363d; }
+  .ad { background:#8957e5; color:#fff; }
+  .ad2 { background:#1f6feb; color:#fff; }
+  a.final { color:#3fb950; font-weight:600; }
+  code { background:#0d1117; padding:2px 6px; border-radius:5px; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="step" id="stepLabel">Step 1 of 3</div>
+  <h1 id="title">Please wait, your link is being generated…</h1>
+  <div class="wait">Please wait <span class="count" id="timer">15</span> <span id="waitUnit">seconds</span></div>
+
+  <button class="primary" id="continueBtn" disabled>Please wait…</button>
+
+  <div class="ads">
+    <div class="step">Sponsored</div>
+    <button class="ad" onclick="alert('You clicked an AD. The script should never do this.')">Download App</button>
+    <button class="ad2" onclick="alert('You clicked an AD. The script should never do this.')">Join Telegram</button>
+  </div>
+</div>
+
+<script>
+/* ---- A deliberately annoying 3-step shortlink gate: 15s -> 10s -> Get Link ---- */
+const FINAL_URL = 'final.html';
+const STEPS = [
+  { secs: 15, label: 'Step 1 of 3', title: 'Please wait, your link is being generated…', btn: 'Continue' },
+  { secs: 10, label: 'Step 2 of 3', title: 'Verify you are human to continue',           btn: 'Click here to continue' },
+  { secs: 5,  label: 'Step 3 of 3', title: 'Your link is ready',                         btn: 'Get Link' },
+];
+
+let stepIndex = 0;
+const $ = (id) => document.getElementById(id);
+
+function runStep() {
+  const s = STEPS[stepIndex];
+  $('stepLabel').textContent = s.label;
+  $('title').textContent = s.title;
+  $('timer').textContent = s.secs;
+  const btn = $('continueBtn');
+  btn.disabled = true;
+  btn.textContent = 'Please wait…';
+
+  let left = s.secs;
+  (function tick() {
+    left--;
+    $('timer').textContent = Math.max(0, left);
+    if (left > 0) {
+      setTimeout(tick, 1000);           // <- the timer the userscript accelerates
+    } else {
+      btn.disabled = false;
+      btn.textContent = s.btn;
+      $('waitUnit').textContent = 'seconds — ready!';
+    }
+  })();
+
+  btn.onclick = () => {
+    if (btn.disabled) return;
+    stepIndex++;
+    if (stepIndex < STEPS.length) { runStep(); }
+    else { window.location.href = FINAL_URL; }
+  };
+}
+runStep();
+</script>
+
+<!-- Load the userscript inline so the page can be tested without installing it.
+     Open with ?auto=1 to simulate Tampermonkey. -->
+<script>
+if (new URLSearchParams(location.search).get('auto') === '1') {
+  const s = document.createElement('script');
+  s.src = '../shortlink-autoskip.user.js';
+  document.body.appendChild(s);
+}
+</script>
+</body>
+</html>
