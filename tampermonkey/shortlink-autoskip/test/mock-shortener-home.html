@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VPLink — URL Shortener, shorten links and earn money</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#0e1116;color:#c9d1d9;font:16px system-ui,sans-serif}
+ .wrap{max-width:720px;margin:0 auto;padding:24px;text-align:center}
+ .btn{display:inline-block;background:#238636;color:#fff;font-weight:700;padding:12px 24px;border-radius:9px;border:0;cursor:pointer}
+ nav a{color:#58a6ff;margin:0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a href="/login">Login</a><a href="/register">Register</a>
+    <a href="/dashboard">Dashboard</a><a href="/payout">Payout</a>
+  </nav>
+  <h1>Shorten links and earn money</h1>
+  <p>Please wait <span id="t">10</span> seconds…</p>
+  <button id="get" class="btn">Get Link</button>
+  <a id="cont" class="btn" href="https://www.mediafire.com/file/zzz/file">Continue</a>
+</div>
+<script>
+(function(){ var n=10, iv=setInterval(function(){ n--; document.getElementById('t').textContent=Math.max(0,n); if(n<=0) clearInterval(iv); },1000);
+  document.getElementById('get').addEventListener('click',function(){ window.__clickedGet=true; });
+  document.getElementById('cont').addEventListener('click',function(){ window.__clickedCont=true; });
+})();
+</script>
+</body>
+</html>
