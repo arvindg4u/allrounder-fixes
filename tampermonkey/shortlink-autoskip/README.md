@@ -13,6 +13,7 @@ without babysitting the tab.
 | `test/mock-blog-gate.html` | A **vplink-style** gate: long article, JS-injected countdown, hidden `CONTINUE` with a locked `href="#"` |
 | `test/final.html` | The "final URL" the mock redirects to |
 | `test/run-tests.js` | Headless jsdom tests (no browser needed) |
+| `bookmarklet/` | Builder + ready-made bookmarklet for browsers where Tampermonkey is blocked |
 
 ---
 
@@ -67,6 +68,33 @@ v1.0 ignored those pages. v1.1 handles them:
 What it still **cannot** do: gates that require a genuine ad visit before they mint the token
 (*"click the ad and come back"*), image/math captchas, or server-side IP rate limits. Those are
 server-checked, not client-side timers.
+
+## 🔖 No-extension fallback: the bookmarklet (use this if Tampermonkey is blocked)
+
+Kiwi's Chromium fork is old and discontinued: even with **Developer Mode** on, Tampermonkey 5.3+
+(MV3) often can't get the `userScripts` permission, so the banner never goes away and *no* script
+runs. Same engine, zero extensions required:
+
+```bash
+node bookmarklet/build-bookmarklet.js      # regenerate after editing the userscript
+```
+
+* `bookmarklet/shortlink-autoskip.bookmarklet.txt` — the `javascript:` URL (~25 KB, minified)
+* `bookmarklet/install.html` — open it and tap **Copy bookmarklet** (works on a phone)
+
+**Android setup (Kiwi / Chrome / Edge / Samsung Internet):**
+
+1. Open `bookmarklet/install.html`, tap **Copy bookmarklet**.
+2. Bookmark any page (☆), then **⋮ → Bookmarks → edit** that bookmark.
+3. Name it `skip`, paste the copied text as the **URL**, save.
+4. On a shortlink/gate page, type `skip` in the address bar and tap the bookmark suggestion.
+
+The badge appears, countdowns are fast-forwarded and the step buttons get clicked. Because a
+bookmarklet only starts *after* the page has loaded, tap it again on each new step page
+(the userscript does that part automatically — the bookmarklet is the fallback, not the equal).
+
+**Other options that work today:** Firefox for Android + Tampermonkey/Violentmonkey (full support,
+no toggle needed), Edge Canary for Android, or the legacy MV2 build of Tampermonkey in Kiwi.
 
 ### ⚠ Nothing happens at all? Check this first (Android / Kiwi / Chrome)
 
@@ -162,6 +190,7 @@ node test/run-tests.js
 # PASS  vplink-style blog gate (long article, hidden CONTINUE, locked href)
 # PASS  stays idle on an ordinary website
 # PASS  ignores a checkout page that has a .timer + Continue button
+# PASS  bookmarklet build on the blog gate
 # PASS  ignores a news article saying "30 seconds ago"
 ```
 

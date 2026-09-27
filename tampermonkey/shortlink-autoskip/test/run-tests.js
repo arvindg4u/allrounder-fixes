@@ -32,6 +32,7 @@ function makeDom(html, url, onAd, referrer) {
                 value() { return { width: 100, height: 40, top: 0, left: 0, right: 100, bottom: 40 }; },
             });
             w.HTMLElement.prototype.scrollIntoView = function () {};
+            w.scrollTo = function () {};
         },
     });
     return dom;
@@ -75,6 +76,28 @@ function noFalsePositiveTest(name, url, html) {
     });
 }
 
+// The bookmarklet build must work too: tapped 2s AFTER the page loaded.
+function bookmarkletTest() {
+    const file = path.join(__dirname, '..', 'bookmarklet', 'shortlink-autoskip.bookmarklet.txt');
+    if (!fs.existsSync(file)) { console.log('SKIP  bookmarklet (run bookmarklet/build-bookmarklet.js first)'); return Promise.resolve(true); }
+    const code = decodeURIComponent(fs.readFileSync(file, 'utf8').replace(/^javascript:/, ''));
+    return new Promise(resolve => {
+        let adClicked = false, navigated = false;
+        const dom = makeDom(BLOG_HTML, 'https://rotating-partner-blog.example/post/',
+            () => { adClicked = true; }, 'https://vplink.in/MEIN_ID_SAFE_PANEL');
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        setTimeout(() => dom.window.eval(code), 2000);
+        setTimeout(() => {
+            const ok = navigated && !adClicked;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  bookmarklet build on the blog gate (reached final url: ${navigated}, ad clicked: ${adClicked})`);
+            dom.window.close();
+            resolve(ok);
+        }, 12000);
+    });
+}
+
 function idleTest() {
     return new Promise(resolve => {
         const html = `<html><body><h1>My blog</h1><p>${'lorem ipsum dolor sit amet '.repeat(400)}</p>
@@ -97,6 +120,7 @@ function idleTest() {
     results.push(await gateTest('unknown host, heuristic detection', 'https://some-random-earn-link.xyz/abc'));
     results.push(await gateTest('vplink-style blog gate (long article, hidden CONTINUE, locked href)',
         'https://rotating-partner-blog.example/studyblogs/some-post/', BLOG_HTML, 'https://vplink.in/MEIN_ID_SAFE_PANEL'));
+    results.push(await bookmarkletTest());
     results.push(await idleTest());
     results.push(await noFalsePositiveTest('ignores a checkout page that has a .timer + Continue button',
         'https://shop.example.com/checkout',
