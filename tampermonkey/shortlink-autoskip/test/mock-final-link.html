@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get your link — server has to generate it first</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#0e1116;color:#c9d1d9;font:16px/1.7 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+ .wrap{max-width:720px;margin:0 auto;padding:24px;text-align:center}
+ .btn{display:inline-block;font-weight:700;padding:13px 26px;border-radius:9px;border:0;cursor:pointer;font-size:16px;background:#238636;color:#fff}
+ #err{color:#f85149;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Your link is ready in a moment</h1>
+  <p>Please wait 5 seconds, then press the button below.</p>
+  <button id="getlink" class="btn">Get Link</button>
+  <p id="err"></p>
+  <p id="state">Preparing…</p>
+</div>
+<script>
+/* The real final step: the destination is fetched from the server and only
+   exists once that request has come back. Clicking early = Bad Request. */
+(function () {
+  /* Captured before any userscript can patch Date: the server's 1.5s of work is
+     WALL-CLOCK time — speeding up timers or Date.now() cannot shorten it. */
+  var realNow = Date.now.bind(Date);
+  var bornAt = realNow();
+  var token = null;
+  setInterval(function () {
+    if (!token && realNow() - bornAt >= 1500) {
+      token = 'ok';
+      document.getElementById('state').textContent = 'Ready.';
+    }
+  }, 50);
+
+  document.getElementById('getlink').addEventListener('click', function (e) {
+    if (!token) {
+      e.preventDefault();
+      document.getElementById('err').textContent = '400 Bad Request — invalid token';
+      window.__badRequest = (window.__badRequest || 0) + 1;
+      return;
+    }
+    window.__gotLink = true;
+    document.getElementById('err').textContent = '';
+    location.href = 'final.html';
+  });
+})();
+</script>
+<script>
+if (new URLSearchParams(location.search).get('auto') === '1') {
+  var s = document.createElement('script'); s.src = '../shortlink-autoskip.user.js'; document.body.appendChild(s);
+}
+</script>
+</body>
+</html>
