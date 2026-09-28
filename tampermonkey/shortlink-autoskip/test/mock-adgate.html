@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Top 5 Sovereign Wealth Funded Global Corporate Scholarships 2026 – ENTIREDUST-style step 2/3</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#0e1116;color:#c9d1d9;font:16px/1.7 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+ .wrap{max-width:780px;margin:0 auto;padding:22px}
+ .gate{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px;margin:16px 0;text-align:center}
+ .btn{display:inline-block;font-weight:700;padding:12px 24px;border-radius:9px;text-decoration:none;border:0;cursor:pointer;font-size:16px}
+ .verify{background:#1f6feb;color:#fff}
+ .go{background:#238636;color:#fff}
+ .hidden{display:none}
+ img{width:220px;height:110px;border-radius:8px}
+ h1{color:#e6edf3;font-size:22px}
+ .loop{color:#8b949e}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p><b>You are currently on step 2/3.</b></p>
+
+  <div class="gate">
+    <p><b>▼ LINK पाने और DOWNLOAD करने के लिए, फोटो पर क्लिक करें, 15 सेकंड रुकें और फिर इसी पेज पर वापस आएं</b></p>
+    <a id="adlink" href="https://ads.example.com/offer?id=99" target="_blank">
+      <img id="adimg" src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E" alt="ad banner">
+    </a>
+    <p><button id="verify" class="btn verify">Verify</button></p>
+    <p id="msg">Scroll down &amp; click on <b>Continue</b> button for your destination link</p>
+  </div>
+
+  <h1>Top 5 Sovereign Wealth Funded Global Corporate Scholarships 2026</h1>
+  <p>Chen managed a massive cross border algorithmic trading infrastructure inside Raffles Place. He coordinated
+  complex international trading operations across twenty five global financial centers successfully.</p>
+  <p>Sovereign wealth entities provide massive fully funded scholarship sponsorships exclusively for executives.
+  International professionals secure premium credentials without devastating constraints necessarily.</p>
+
+  <!-- the loop trap: a link back to an article this chain already visited -->
+  <p class="loop"><a id="loopback" href="already-seen-article.html">Top 5 Corporate Sponsored Global Degree Pathways 2026</a></p>
+
+  <p><a id="continue" class="btn go hidden" href="final.html">Continue</a></p>
+</div>
+
+<script>
+(function () {
+  var verified = false;
+
+  // their ad hook: any click on the banner marks you as "visited the ad"
+  document.getElementById('adlink').addEventListener('click', function () {
+    window.__adClicked = true;
+  });
+  // if the browser really navigates to the ad, the test counts it as a failure
+  document.getElementById('adlink').addEventListener('click', function (e) {
+    if (!e.defaultPrevented) { window.__adNavigated = true; }
+  });
+
+  document.getElementById('verify').addEventListener('click', function () {
+    if (!window.__adClicked) {
+      document.getElementById('msg').textContent = 'Please click the image first, wait 15 seconds and come back.';
+      return;                       // <- this is what made v1.1 spin forever
+    }
+    verified = true;
+    document.getElementById('msg').textContent = 'Verified! Scroll down and click Continue.';
+    var c = document.getElementById('continue');
+    c.classList.remove('hidden');
+  });
+
+  document.getElementById('continue').addEventListener('click', function (e) {
+    if (!verified) { e.preventDefault(); }
+  });
+})();
+</script>
+
+<script>
+if (new URLSearchParams(location.search).get('auto') === '1') {
+  var s = document.createElement('script');
+  s.src = '../shortlink-autoskip.user.js';
+  document.body.appendChild(s);
+}
+</script>
+</body>
+</html>
