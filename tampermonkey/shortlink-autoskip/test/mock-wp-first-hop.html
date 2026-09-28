@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ITI Exam Shala — study notes</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#0e1116;color:#c9d1d9;font:16px/1.7 system-ui,sans-serif}
+ .wrap{max-width:760px;margin:0 auto;padding:22px}
+ .btn{display:inline-block;background:#238636;color:#fff;font-weight:700;padding:12px 24px;border-radius:9px;border:0;cursor:pointer}
+ .hide{display:none}
+</style>
+<script>
+/* the kind of inline JSON every WordPress blog ships — none of it is "the link" */
+var _wpemojiSettings = {"baseUrl":"https://s.w.org/images/core/emoji/14.0.0/72x72/","source":{"concatemoji":"https://itiexamshala.example/wp-includes/js/wp-emoji-release.min.js"}};
+var gtagConfig = {"url":"https://www.googletagmanager.com/gtag/js?id=G-ABC123","link":"https://www.google-analytics.com/collect"};
+var themeCfg = {"ajax_url":"https://itiexamshala.example/wp-admin/admin-ajax.php","cdn":"https://cdn.jsdelivr.net/npm/bootstrap@5/dist/js/bootstrap.bundle.min.js"};
+var somePayload = "aHR0cHM6Ly93d3cuZ29vZ2xldGFnbWFuYWdlci5jb20vZ3RhZy9qcz9pZD1HLUFCQzEyMw==";
+</script>
+</head>
+<body>
+<div class="wrap">
+  <p><b>Step 1 of 4</b></p>
+  <h1>Study notes for the exam</h1>
+  <p>Placeholder article text for the automated test, standing in for the long post these gates hide their timer inside.</p>
+  <p>Another placeholder paragraph so the page looks like a real article to the detector.</p>
+  <p>Please wait <span id="t">10</span> seconds and then click Continue below.</p>
+  <button id="verify" class="btn">Verify</button>
+  <a id="cont" class="btn hide" href="final.html">Continue</a>
+</div>
+<script>
+(function () {
+  var n = 10, iv = setInterval(function () { n--; document.getElementById('t').textContent = Math.max(0, n); if (n <= 0) clearInterval(iv); }, 1000);
+  document.getElementById('verify').addEventListener('click', function () {
+    window.__verified = true;
+    document.getElementById('cont').classList.remove('hide');
+  });
+})();
+</script>
+<script>
+if (new URLSearchParams(location.search).get('auto') === '1') {
+  var s = document.createElement('script'); s.src = '../shortlink-autoskip.user.js'; document.body.appendChild(s);
+}
+</script>
+</body>
+</html>

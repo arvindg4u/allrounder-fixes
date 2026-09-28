@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VPLink — URL Shortener, shorten links and earn money</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#0e1116;color:#c9d1d9;font:16px system-ui,sans-serif}
+ .wrap{max-width:720px;margin:0 auto;padding:24px;text-align:center}
+ .btn{display:inline-block;background:#238636;color:#fff;font-weight:700;padding:12px 24px;border-radius:9px;border:0;cursor:pointer}
+ nav a{color:#58a6ff;margin:0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a href="/login">Login</a><a href="/register">Register</a>
+    <a href="/dashboard">Dashboard</a><a href="/payout">Payout</a>
+  </nav>
+  <h1>Shorten links and earn money</h1>
+  <p>Please wait <span id="t">3</span> seconds…</p>
+  <button id="get" class="btn disabled" disabled>Get Link</button>
+  <a id="cont" class="btn get-link disabled" href="https://www.mediafire.com/file/zzz/file">Continue</a>
+  <p id="err"></p>
+</div>
+<script>
+(function () {
+  /* a REAL 3s countdown: the controls only unlock when it finishes, and using
+     them early is a 400 — exactly like the provider's final page */
+  var realNow = Date.now.bind(Date), born = realNow(), n = 3;
+  var iv = setInterval(function () {
+    n = Math.max(0, 3 - Math.floor((realNow() - born) / 1000));
+    document.getElementById('t').textContent = n;
+    if (realNow() - born >= 3000) {
+      clearInterval(iv);
+      window.__unlockedAt = realNow();
+      document.getElementById('get').classList.remove('disabled');
+      document.getElementById('get').removeAttribute('disabled');
+      document.getElementById('cont').classList.remove('disabled');
+    }
+  }, 200);
+  document.getElementById('get').addEventListener('click', function () {
+    if (realNow() - born < 3000) { window.__badRequest = true; document.getElementById('err').textContent = '400 Bad Request'; return; }
+    window.__clickedGet = true;
+  });
+  document.getElementById('cont').addEventListener('click', function (e) {
+    if (realNow() - born < 3000) { e.preventDefault(); window.__badRequest = true; return; }
+    window.__clickedCont = true;
+  });
+})();
+</script>
+</body>
+</html>
