@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Human verification</title>
+</head>
+
+<body>
+    <!-- math-captcha gate: the Continue button navigates only when the answer
+         input holds the right value. -->
+    <h1>Human verification</h1>
+    <p>Please wait <span class="timer" id="t">10</span> seconds</p>
+    <div>
+        <p>Solve: 7 + 5 = ?</p>
+        <input type="text" id="ans" autocomplete="off">
+    </div>
+    <div id="msg"></div>
+    <button id="next" disabled>Continue</button>
+    <script>
+        var s = 10;
+        var iv = setInterval(function () {
+            s--;
+            document.getElementById('t').textContent = s;
+            if (s <= 0) {
+                clearInterval(iv);
+                document.getElementById('next').disabled = false;
+            }
+        }, 1000);
+        document.getElementById('next').addEventListener('click', function () {
+            if (document.getElementById('ans').value.trim() === '12') {
+                document.getElementById('msg').textContent = 'correct!';
+                location.href = 'final.html';
+            } else {
+                document.getElementById('msg').textContent = 'wrong answer';
+            }
+        });
+    </script>
+</body>
+
+</html>

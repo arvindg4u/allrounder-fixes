@@ -1,5 +1,7 @@
 # Shortlink Auto-Skip — Tampermonkey userscript
 
+**v1.19.0** — modernises the script against what the current generation of gates does and what the popular bypass scripts (Bypass All Shortlinks v96.x, FastForward, uBlock's shortener filters) now ship: a **trust shield** for `event.isTrusted` checks, Cloudflare-challenge hands-off, chain-state cleanup so a *new* link after a finished chain still gets its timers skipped, realistic clicks (coordinates + pointer/touch warm-up), meta-refresh acceleration, ROT13/reversed/double base64 destination decoders, math-captcha solving, captcha-aware continuation, ad-frame immunity, dialog-trap removal, adblock-nag removal, `window.onurlchange` (SPA gates), and an **opt-in** bypass.city resolver for server-validated providers (linkvertise / work.ink / lootlink). Full details in [the v1.19 section](#-v119--researched-against-the-current-best-scripts).
+
 **v1.18.0** — fixes the regression that broke normal gates: "back at the provider" now requires **actually leaving the host and returning**, so multi-step shorteners keep skipping timers and clicking as before.
 
 Automates the "wait 15 seconds → Continue → wait 10 seconds → Click here to continue → Get Link"
@@ -17,6 +19,9 @@ without babysitting the tab.
 | `test/mock-final-link.html` | The last step: the URL is generated **server-side**, so an early click returns `400 Bad Request` |
 | `test/mock-wpsafelink.html` | Back on the shortener: 20s timer + Get Link, with the real URL hidden in the page as base64 |
 | `test/mock-leet-gate.html` | Brazilian gate: `1/5` steps, Portuguese copy, button label obfuscated as `PR0SS3GU!R` |
+| `test/mock-trusted-gate.html` | A gate whose click handler checks `event.isTrusted` and is armed only when the timer ends (Soralink/pahe style) |
+| `test/mock-raf-gate.html` | A countdown driven by `requestAnimationFrame` + `performance.now()` (clock-consistency check) |
+| `test/mock-math-gate.html` | A "Solve: 7 + 5 = ?" math-captcha gate |
 | `test/mock-shortener-home.html` | The shortener's **own** site, where the chain ends and the script must stop |
 | `test/mock-wp-first-hop.html` | A WordPress first hop stuffed with analytics/CDN URLs that must **not** be read as the destination |
 | `test/final.html` | The "final URL" the mock redirects to |
@@ -590,6 +595,109 @@ anything writes to it.
 timer **is** patched, the next page **is** reached, and the page is **not** treated as a provider
 return.
 
+## 🔬 v1.19 — researched against the current best scripts
+
+Web research into what the leading tools do right now — **Bypass All Shortlinks v96.8** by
+Bloggerpemula (~500k installs), its **Debloated** fork, **FastForward**, uBlock Origin's 2025-2026
+shortener filter threads, and the bypass.city resolver — turned up one arms-race change and a
+handful of gaps in our script. All of them are fixed here.
+
+### The big one: `event.isTrusted` checks (why clicks "did nothing")
+
+Soralink/pahe-style gates and modern AdLinkFly clones now register click handlers that check
+`event.isTrusted` — browser-generated events are `true`, script-dispatched ones are `false`, and the
+gate **silently ignores ours**. That is exactly the "script runs but nothing happens" symptom.
+`isTrusted` cannot be forged on a real event, but the page only *reads* it inside the listener it
+registered — so (like BloggerPemula's `TrustMe` and uBO's `trusted-click-element`):
+
+* **Trust shield** — on pages we engage on, `EventTarget.prototype.addEventListener` is wrapped so
+  every listener we did not register receives *untrusted* events through a Proxy that reports
+  `isTrusted: true`. Real user events pass through completely untouched, and
+  `removeEventListener` still works (the shim registry maps listener → shim). Installed at
+  `document-start` on known hosts (before the page registers anything) and at engage time
+  everywhere else — which still catches the Soralink trick of *registering the handler only when
+  the timer hits zero*.
+* **jQuery fallback** — for handlers registered *before* the shield went up, the gate's own jQuery
+  handlers (`$._data(el,'events')`, including delegated ones on ancestors) are invoked directly
+  with a hand-made trusted event — the workaround documented in the Debloated-fork issue tracker
+  for exactly this anti-bypass technique.
+
+### Chain-state pollution (why the *next* link stopped being automated)
+
+The cross-domain `GM_setValue` host trail lived for 30 minutes and the `sas_done` marker was never
+cleared — so opening a **new** short link after a finished chain (same tab, or another tab within
+the TTL) was misread as *"back at the provider"*: honest timing, no timer skipping, and on unknown
+hosts total idling. Now:
+
+* the chain state is **cleared the moment a chain finishes** (destination reached *or* provider
+  step completed);
+* a **fresh short-code URL** (`site.com/AbCdE`) opened after 3 quiet minutes resets the trail,
+  the done-marker and the per-host hop counter — a new chain starts clean;
+* `sas_done` is stored as a timestamp and only honoured for 5 minutes;
+* the chain's `at` field now records *last activity*, so a long-running chain never looks stale.
+
+### Cloudflare & anti-bot challenges
+
+"Just a moment…" pages (title match, `#challenge-form`, `/cdn-cgi/challenge-platform/` scripts) are
+never touched — anything patched at `document-start` is restored as soon as the DOM reveals it.
+The script also **never runs inside ad-network iframes** (`doubleclick`, `adsterra`, `propellerads`,
+…): those are ads, not gate widgets, and clicking "Continue" inside one *is* clicking the ad.
+
+### Realistic clicks
+
+Synthetic events now carry **centered element coordinates** (gates that validate "the click landed
+inside the button" reject default `(0,0)` events) and are preceded by `pointermove`/`mousemove`/
+`touchstart` warm-up on the document — mirroring BloggerPemula's `ReadytoClick`. Forms with
+`target="_blank"` are redirected to the same tab like links already were.
+
+### Everything else that was added
+
+* **`<meta http-equiv=refresh>` waits** are accelerated like timers (rewritten once per element —
+  rewriting again would restart the browser's countdown).
+* **`requestIdleCallback`** is patched alongside `setTimeout`/`setInterval`.
+* **rAF clock fix** — `requestAnimationFrame` timestamps now come from the *same warped clock* the
+  page reads via `performance.now()`. The old code mixed a warped baseline with raw frame
+  timestamps, which could make rAF-driven countdowns compute garbage and never finish.
+* **`window.onurlchange`** (granted) — SPA-style gates that move to the next step via
+  `history.pushState` re-run the shortcut/engage logic instead of stalling.
+* **Dialog traps** — `alert`/`confirm`/`prompt` nag loops and `onbeforeunload` traps are
+  neutralised on engaged pages (BloggerPemula's `NoPrompts`).
+* **Adblock-detector removal** — `blockAdBlock`/`FuckAdBlock`/`DisableDevtool`-style scripts are
+  dropped as they load (BloggerPemula's `noAdb`), so they cannot stall the gate behind a
+  "disable your adblock" wall.
+* **`blurred`-style flags** — `window.blurred`, `adBlockDetected` & co. are cleared every scan
+  (uBlock does the same for the linksfly family).
+* **Math captchas** — "Solve: 7 + 5 = ?" next to an empty input is answered automatically
+  (BloggerPemula's `BpAnswer`, trimmed down).
+* **Captcha-aware continuation** — when a gate shows reCAPTCHA/hCaptcha/Turnstile, the script waits
+  for the human to solve it and then continues with a **fresh click budget** instead of burning
+  attempts against a button that cannot work yet.
+* **More decoders** for the embedded-destination extractor: reversed base64 (work.ink style),
+  double base64, ROT13, `\x68\x74…` hex-escaped and `%68%74…` percent-escaped URLs, plus URL-in-any-
+  query-param (referrer/campaign params excluded) and URL-in-`#fragment` (plain or base64).
+* **Current host list** — boost.ink/bst.gg/bst.wtf, cpmlink.net, adtival.network, linkspy.cc,
+  shortit.pw, sfl.gl, 1short.io, cshort.org, lanza.me, paycut.pro, oke.io, adpaylink.com, bc.vc,
+  urlsamo.com, cutpaid.com, ez4link.com, shrs.link, shareus.io and friends.
+* **`@exclude` for big non-gate sites** (Google, YouTube, Facebook, X, Instagram, TikTok, Reddit,
+  LinkedIn, Discord, Telegram, WhatsApp, Amazon, Netflix, Spotify, GitHub, Wikipedia, Microsoft,
+  Apple, Cloudflare, PayPal, banks, AI chats, search engines, captcha hosts…) — mirroring what the
+  popular scripts exclude, for performance and safety.
+* **Firefox Xray safety** — page-scope function assignments go through `exportFunction` when
+  available, so timer/popup patches cannot silently no-op on Firefox.
+
+### Server-validated providers (linkvertise, work.ink, lootlink, admaven)
+
+These compute the destination **on their server** after a validated wait — no client-side trick
+works (the Debloated fork ships the same conclusion). v1.19:
+
+* never bends time on those hosts (honest timing from the first hop, so the server never sees an
+  impossible client);
+* offers an **opt-in, OFF by default** menu command: **🔗 bypass.city resolver** — sends the link
+  to the community `api.bypass.city` resolver via `GM_xmlhttpRequest` and jumps straight to a
+  plausible, non-ad, non-junk answer. It is off because it shares the URL you opened with a
+  third-party service; enable it only if you are comfortable with that.
+
+
 ### If a site still doesn't work
 
 1. Watch the `auto-skip` badge bottom-right — it says whether it engaged and what it clicked.
@@ -605,6 +713,13 @@ return.
   does nothing unless the page *looks* like a gate: countdown text **and** a continue-ish button
   **and** a small page. Ordinary websites are left completely alone — it doesn't even touch their
   timers (timer patching only happens on a known host or once a gate is confirmed).
+* **Big-site exclusions.** Google, YouTube, Facebook, X, Instagram, TikTok, Reddit, LinkedIn,
+  Discord, Telegram, WhatsApp, Amazon, Netflix, Spotify, GitHub, Wikipedia, Microsoft, Apple,
+  Cloudflare, PayPal, banks, AI chats and search engines are `@exclude`d — the script never even
+  loads there (same approach as the popular bypass scripts).
+* **Challenge pages & ad iframes.** Cloudflare-style "Just a moment…" interstitials are never
+  touched (patching their timers could break the challenge), and the script never runs inside
+  ad-network iframes.
 * **Ad blocklist.** Buttons saying *Download App, Join Telegram, Subscribe, Register, Play now,*
   *Deposit, Allow notifications…* score negative and are never clicked. Links pointing at known
   ad networks are excluded too.
@@ -625,6 +740,7 @@ return.
 | 🐞 Debug logs | Prints every decision (including gate signals) to the console |
 | 🩺 Copy gate diagnostics | Copies a JSON dump of the page's buttons + detected signals for bug reports |
 | 🏁 Last step | Switch the provider's final step between **auto-finish** (default) and "let me tap it" |
+| 🔗 bypass.city resolver | **Opt-in, OFF by default**: ask the community resolver for linkvertise/work.ink/lootlink links (shares the URL with a third party) |
 | 🖐 Switch to ASSIST | Stop clicking; mark the real button red so you tap it |
 | 🔴 Mark the real buttons now | One-shot highlight without changing the mode |
 
@@ -636,12 +752,13 @@ Tuning knobs live in the `DEFAULTS` object at the top of the file
 Recognised out of the box (no heuristic needed): gplinks, shrinkme, shrinkearn, adfoc.us, adf.ly,
 ouo.io, exe.io, za.gl, clk.sh / sh.st / shorte.st, tmearn, mitly, earn4link, linkpays, link4earn,
 droplink, rocklinks, link1s, gyanilinks, urlsopen, try2link, oko.sh, fc.lc, pdisk/mdisk shorteners,
-linkjust, cutt.ly and ~40 more. Anything else is handled by the heuristic — and you can pin a site
-permanently with the **➕ Always auto-skip** menu command.
+linkjust, cutt.ly, boost.ink, cpmlink, adtival, linkspy, shortit, sfl.gl, 1short.io, cshort,
+lanza.me, paycut.pro, oke.io, adpaylink, bc.vc and ~40 more. Anything else is handled by the
+heuristic — and you can pin a site permanently with the **➕ Always auto-skip** menu command.
 
-> Not covered: gates that need a real human step (image captcha, reCAPTCHA checkbox, math question,
-> "press the key shown"). The script waits, un-hides what it can and then shows
-> *"nothing to click — do it manually"* instead of guessing.
+> Not covered: gates that need a real human step (image captcha, reCAPTCHA checkbox,
+> "press the key shown"). The script waits (and solves *math* questions automatically),
+> un-hides what it can and then shows *"nothing to click — do it manually"* instead of guessing.
 
 ## Test it without installing
 
@@ -683,6 +800,13 @@ node test/run-tests.js
 # PASS  stops at the destination file URL
 # PASS  cautious mode: revisited page never re-follows the seen link
 # PASS  bookmarklet build on the blog gate
+# PASS  isTrusted-guarded handler accepts the synthetic click
+# PASS  never touches a Cloudflare "Just a moment" page
+# PASS  a NEW short link after a finished chain is still fully automated
+# PASS  meta-refresh wait is accelerated
+# PASS  math captcha solved and the gate passed
+# PASS  rAF countdown finishes with the warped clock
+# PASS  base64 URL in the #fragment is followed
 # PASS  ignores a news article saying "30 seconds ago"
 ```
 

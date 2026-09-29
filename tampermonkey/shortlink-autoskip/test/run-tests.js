@@ -30,6 +30,9 @@ const WPSAFE_HTML = strip('mock-wpsafelink.html');
 const LEET_HTML = strip('mock-leet-gate.html');
 const SHORTHOME_HTML = strip('mock-shortener-home.html');
 const WPHOP_HTML = strip('mock-wp-first-hop.html');
+const TRUSTED_HTML = strip('mock-trusted-gate.html');
+const RAF_HTML = strip('mock-raf-gate.html');
+const MATH_HTML = strip('mock-math-gate.html');
 
 function makeDom(html, url, onAd, referrer) {
     const dom = new JSDOM(html, {
@@ -591,6 +594,170 @@ function idleTest() {
     });
 }
 
+// The Soralink/pahe-style isTrusted check: the handler is armed after the
+// countdown and refuses untrusted events. The trust shield must make our
+// synthetic click pass, and the linksfly-style `blurred` flag must be cleared.
+function trustedClickTest() {
+    return new Promise(resolve => {
+        const dom = makeDom(TRUSTED_HTML, 'https://gplinks.com/trusted1');
+        const w = dom.window;
+        let navigated = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const msg = w.document.getElementById('msg').textContent;
+            const blurredCleared = w.blurred === false;
+            const ok = navigated && msg === 'trusted click accepted' && blurredCleared;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  isTrusted-guarded handler accepts the synthetic click ` +
+                `(navigated: ${navigated}, page says: "${msg}", blurred cleared: ${blurredCleared})`);
+            w.close();
+            resolve(ok);
+        }, 9000);
+    });
+}
+
+// A Cloudflare-style challenge page on a KNOWN host must be left completely
+// alone: timers restored, nothing clicked.
+function challengeIdleTest() {
+    return new Promise(resolve => {
+        const html = `<html><head><title>Just a moment...</title>
+            <script src="/cdn-cgi/challenge-platform/h/b/orchestrate/jsch1/abc"></script></head>
+            <body><span class="timer">10</span><button id="b">Continue</button></body></html>`;
+        const dom = makeDom(html, 'https://gplinks.com/chal1');
+        const w = dom.window;
+        const clicks = [];
+        w.document.getElementById('b').addEventListener('click', () => clicks.push('b'));
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const stillPatched = !!(w.setTimeout && w.setTimeout.__sasPatched);
+            const ok = clicks.length === 0 && !stillPatched;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  never touches a Cloudflare "Just a moment" page ` +
+                `(clicks: ${clicks.length}, timers still patched: ${stillPatched})`);
+            w.close();
+            resolve(ok);
+        }, 5000);
+    });
+}
+
+// The #1 "it stopped working" report: the previous chain finished (or went
+// quiet) and a NEW short link is opened — it must NOT be misread as
+// "back at the provider" (which disables all timer skipping).
+function freshChainAfterDoneTest() {
+    return new Promise(resolve => {
+        const dom = makeDom(GATE_HTML, 'https://gplinks.com/newlink1');
+        const w = dom.window;
+        try {
+            // leftover host trail from a chain that finished 4 minutes ago
+            w.__gm['sas_chain_state'] = JSON.stringify({
+                origin: 'gplinks.com', at: Date.now() - 240000,
+                hosts: ['gplinks.com', 'someblog.example', 'gplinks.com'],
+            });
+            w.sessionStorage.setItem('sas_done', '1');
+        } catch (e) { /* ignore */ }
+        let navigated = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const timerSkipped = !!(w.setTimeout && w.setTimeout.__sasPatched);
+            const badge = w.document.getElementById('sas-badge');
+            const txt = badge ? badge.textContent : '';
+            const wronglyStopped = /last step at|honest|waiting out their real timer|tap the RED/i.test(txt);
+            const ok = navigated && timerSkipped && !wronglyStopped;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  a NEW short link after a finished chain is still fully automated ` +
+                `(reached final: ${navigated}, timer skipped: ${timerSkipped}, misread as provider: ${wronglyStopped})`);
+            w.close();
+            resolve(ok);
+        }, 9000);
+    });
+}
+
+// Browser-native <meta http-equiv=refresh> waits must be accelerated too.
+function metaRefreshTest() {
+    return new Promise(resolve => {
+        const html = `<html><head><meta http-equiv="refresh" content="10; url=https://files.example/final.zip"></head>
+            <body><h1>Please wait 10 seconds</h1><span class="timer">10</span>
+            <button disabled>Continue</button></body></html>`;
+        const dom = makeDom(html, 'https://gplinks.com/mrefresh');
+        const w = dom.window;
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const meta = w.document.querySelector('meta[http-equiv="refresh"]');
+            const delay = meta ? parseFloat(meta.getAttribute('content')) : 99;
+            const ok = delay < 2;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  meta-refresh wait is accelerated (delay now ${delay}s)`);
+            w.close();
+            resolve(ok);
+        }, 5000);
+    });
+}
+
+// "Solve: 7 + 5 = ?" — the tiny math solver must fill the input.
+function mathCaptchaTest() {
+    return new Promise(resolve => {
+        const dom = makeDom(MATH_HTML, 'https://gplinks.com/math1');
+        const w = dom.window;
+        let navigated = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const msg = w.document.getElementById('msg').textContent;
+            const ok = navigated && msg === 'correct!';
+            console.log(`${ok ? 'PASS' : 'FAIL'}  math captcha solved and the gate passed ` +
+                `(navigated: ${navigated}, page says: "${msg}")`);
+            w.close();
+            resolve(ok);
+        }, 9000);
+    });
+}
+
+// rAF-driven countdown reading performance.now(): the rAF patch must use the
+// same warped clock or the countdown freezes at "more than 15 seconds left".
+function rafClockTest() {
+    return new Promise(resolve => {
+        const dom = makeDom(RAF_HTML, 'https://gplinks.com/raf1');
+        const w = dom.window;
+        let navigated = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const msg = w.document.getElementById('msg').textContent;
+            const ok = navigated && msg === 'armed';
+            console.log(`${ok ? 'PASS' : 'FAIL'}  rAF countdown finishes with the warped clock ` +
+                `(navigated: ${navigated}, page says: "${msg}")`);
+            w.close();
+            resolve(ok);
+        }, 9000);
+    });
+}
+
+// The destination hidden behind a base64 fragment: #aHR0cHM6Ly9maWxlcy5leGFtcGxl…
+function hashShortcutTest() {
+    return new Promise(resolve => {
+        const html = `<html><body><h1>Shortening</h1>
+            <span class="timer">5</span><button disabled>Continue</button></body></html>`;
+        const b64 = Buffer.from('https://files.example/final.zip').toString('base64');
+        const dom = makeDom(html, 'https://ouo.io/hashstep#' + b64);
+        let navigated = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            console.log(`${navigated ? 'PASS' : 'FAIL'}  base64 URL in the #fragment is followed`);
+            dom.window.close();
+            resolve(navigated);
+        }, 5000);
+    });
+}
+
 (async () => {
     const results = [];
     results.push(await gateTest('known shortener host (gplinks.com)', 'https://gplinks.com/abc123'));
@@ -618,6 +785,13 @@ function idleTest() {
     results.push(await loopGuardTest());
     results.push(await bookmarkletTest());
     results.push(await idleTest());
+    results.push(await trustedClickTest());
+    results.push(await challengeIdleTest());
+    results.push(await freshChainAfterDoneTest());
+    results.push(await metaRefreshTest());
+    results.push(await mathCaptchaTest());
+    results.push(await rafClockTest());
+    results.push(await hashShortcutTest());
     results.push(await noFalsePositiveTest('ignores a checkout page that has a .timer + Continue button',
         'https://shop.example.com/checkout',
         `<html><body><h1>Checkout</h1><p>Delivery in 2 days. Order total 1299. Popular in the 1990s.</p>
