@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Shortlink Auto-Skip (timers + auto-continue)
 // @namespace    https://github.com/arvindg4u/allrounder-fixes
-// @version      1.18.0
+// @version      1.20.0
 // @description  Automates "wait 15 seconds / wait 10 seconds / click Continue" pages on earn-per-click short URL sites: speeds up countdowns, enables + clicks the Continue/Verify/Next/Get-Link button for every step and lands you on the final destination URL. Handles blog-style gates (vplink & friends) too.
 // @author       arvindg4u
 // @license      MIT
@@ -14,28 +14,90 @@
 // @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
 // @grant        GM_setClipboard
+// @grant        GM_xmlhttpRequest
+// @grant        window.onurlchange
+// @connect      api.bypass.city
+// @connect      bypass.city
+// Big non-gate sites the script should never even load on (perf + safety),
+// mirroring what the popular bypass scripts exclude. File hosts that are not
+// in this list (mediafire, mega.nz, buzzheavier, ...) stay matched so the
+// "destination reached" stop still fires there.
+// @exclude      *://*.google.*/*
+// @exclude      *://*.youtube.com/*
+// @exclude      *://*.facebook.com/*
+// @exclude      *://*.instagram.com/*
+// @exclude      *://*.tiktok.com/*
+// @exclude      *://*.twitter.com/*
+// @exclude      *://*.x.com/*
+// @exclude      *://*.threads.net/*
+// @exclude      *://*.reddit.com/*
+// @exclude      *://*.linkedin.com/*
+// @exclude      *://*.pinterest.*/*
+// @exclude      *://*.snapchat.com/*
+// @exclude      *://*.discord.com/*
+// @exclude      *://*.discord.gg/*
+// @exclude      *://*.telegram.org/*
+// @exclude      *://*.t.me/*
+// @exclude      *://*.whatsapp.com/*
+// @exclude      *://*.amazon.*/*
+// @exclude      *://*.ebay.*/*
+// @exclude      *://*.shopee.*/*
+// @exclude      *://*.netflix.com/*
+// @exclude      *://*.spotify.com/*
+// @exclude      *://*.github.com/*
+// @exclude      *://*.gitlab.com/*
+// @exclude      *://*.wikipedia.org/*
+// @exclude      *://*.microsoft.com/*
+// @exclude      *://*.apple.com/*
+// @exclude      *://*.icloud.com/*
+// @exclude      *://*.cloudflare.com/*
+// @exclude      *://*.paypal.com/*
+// @exclude      *://*.stripe.com/*
+// @exclude      *://*.binance.com/*
+// @exclude      *://*.chatgpt.com/*
+// @exclude      *://*.openai.com/*
+// @exclude      *://*.grok.com/*
+// @exclude      *://*.bing.com/*
+// @exclude      *://*.yahoo.com/*
+// @exclude      *://*.duckduckgo.com/*
+// @exclude      *://*.baidu.com/*
+// @exclude      *://*.yandex.*/*
+// @exclude      *://*.recaptcha.net/*
+// @exclude      *://*.hcaptcha.com/*
+// @exclude      *://*.challenges.cloudflare.com/*
+// @exclude      *://*.greasyfork.org/*
+// @exclude      *://*.openuserjs.org/*
 // ==/UserScript==
 
 /*
  * NOTE: @match *://*\/* is a deliberate catch-all — the script stays completely
  * idle unless a page is detected as a shortlink gate (see looksLikeGate below).
  *
- * HOW IT WORKS (3 layers, in order of reliability)
+ * HOW IT WORKS (layers, in order of reliability)
  *
- *   1. Timer layer   – patches setTimeout/setInterval on the page so a 15s / 10s
- *                      countdown finishes almost instantly, and zeroes the usual
- *                      global counter variables (seconds, timeleft, counter, ...).
+ *   1. Timer layer   – patches setTimeout/setInterval (+ rAF, requestIdleCallback
+ *                      and meta-refresh) so a 15s / 10s countdown finishes almost
+ *                      instantly, and zeroes the usual global counter variables
+ *                      (seconds, timeleft, counter, ...).
  *   2. Click layer   – a MutationObserver + slow poll looks for the step button
  *                      ("Continue", "Click here to continue", "Verify", "Next",
  *                      "Get Link", "Generate Link", "Skip Ad", "Go to link"),
- *                      un-disables / un-hides it and clicks it with real mouse
- *                      events. Repeats for every step until the final URL.
- *   3. Shortcut layer– known redirect patterns (?url=, ?r=, base64 payloads,
- *                      AdFly ysmm, canonical link) jump straight to the target.
+ *                      un-disables / un-hides it and clicks it with realistic
+ *                      mouse events (centered coordinates, pointer + touch
+ *                      warm-up). Repeats for every step until the final URL.
+ *                      The trust shield makes those synthetic clicks pass the
+ *                      event.isTrusted checks modern gates use, and gates that
+ *                      hammer jQuery handlers get them invoked directly.
+ *   3. Shortcut layer– known redirect patterns (?url=, ?r=, any URL-bearing
+ *                      query param, base64 / reversed-base64 / ROT13 / hex
+ *                      payloads, AdFly ysmm, canonical link) jump straight to
+ *                      the target.
  *
  * SAFETY
  *   - genericMode: 'heuristic' (default) only acts on pages that actually look
  *     like a shortlink gate (countdown text + a continue-ish button).
+ *   - Cloudflare / anti-bot challenge pages ("Just a moment...") are never
+ *     touched, and the script never runs inside ad-network iframes.
  *   - Ad / social / download-app buttons are blocklisted, popups are blocked,
  *     every element is clicked at most once and there is a per-page click cap,
  *     so the script cannot spin in a loop.
@@ -65,7 +127,13 @@
         useEmbeddedDestination: true,  // read the destination out of the page instead of clicking
         speedUpTimers: true,
         warpClock: true,        // also speed up Date.now()/new Date() — many gates poll wall-clock
+        speedMetaRefresh: true, // <meta http-equiv=refresh content="15;url=…"> waits too
         visibilityShield: true, // never let the gate see the tab as hidden/unfocused
+        trustEvents: true,      // synthetic clicks must pass the gate's event.isTrusted check
+        blockDialogs: true,     // swallow alert/confirm/prompt + onbeforeunload traps while engaged
+        killAdblockNag: true,   // remove adblock-detector scripts that stall the gate
+        solveMath: true,        // fill in "Solve: 7 + 5" style captcha inputs
+        useApiFallback: false,  // OFF by default: ask bypass.city for linkvertise/lootlink/work.ink links
         simulateAdVisit: true,  // fake the "went to the ad and came back" round trip
         deadEndReload: true,    // reload once on "click an ad and keep it open" dead ends
         waitForNetwork: true,   // never click while the page is still talking to its server
@@ -113,6 +181,19 @@
         clearInterval: window.clearInterval.bind(window),
     };
 
+    // On Firefox, functions living in the userscript sandbox cannot simply be
+    // assigned onto the page window (Xray vision) — they must be exported first,
+    // or the patch silently does nothing. exportFunction is provided by
+    // Tampermonkey/Violentmonkey sandboxes there; everywhere else this is a no-op.
+    const exportToPage = (fn) => {
+        try {
+            if (typeof exportFunction === 'function' && typeof unsafeWindow !== 'undefined' && PAGE === unsafeWindow) {
+                return exportFunction(fn, unsafeWindow);
+            }
+        } catch (e) { /* fall through */ }
+        return fn;
+    };
+
     const log = (...a) => { if (CFG.debug) console.log('%c[auto-skip]', 'color:#0a0;font-weight:bold', ...a); };
 
     /* ─────────────────────── host knowledge base ────────────────────── */
@@ -144,6 +225,15 @@
         'softurl.in', 'linkshortify.in', 'shrinkforearn.in', '4hi.in',
         'indianshortner.com', 'dekhe.click', 'clk.wiki', 'go.tnshort.net',
         'alpharede.com', 'arolinks.com', 'arolinks.in', 'linkspay.in', 'shrinkforearn.xyz',
+        // currently popular AdLinkFly / Soralink families (2025-2026)
+        'boost.ink', 'bst.gg', 'bst.wtf', 'booo.st', 'cpmlink.net', 'adtival.network',
+        'linkspy.cc', 'shortit.pw', 'sfl.gl', '1shortlink.com', '1short.io',
+        'cshort.org', 'lanza.me', 'paycut.pro', 'oke.io', 'adpaylink.com',
+        'bc.vc', 'bcvc.live', 'urlsamo.com', 'cutpaid.com', 'ez4link.com',
+        'lnks.in', 'shrs.link', 'shareus.io', 'go.paylinks.cloud', 'thinlink.com',
+        'shortlinkforyou.com', 'dutchycorp.space', 'adz7short.space',
+        // API-gated providers (server-side validation — see API_GATED_HOSTS)
+        'linkvertise.com', 'work.ink', 'loot.link', 'loot-link.com', 'best-links.org',
     ].concat(G.get('customHosts', []));
 
     // Partner blogs that HOST the gates. They are gates to be solved — never
@@ -156,6 +246,12 @@
     function isGateBlogHost() {
         return GATE_BLOG_HOSTS.some(h => HOST === h || HOST.endsWith('.' + h));
     }
+
+    // Providers whose gate is validated SERVER side (linkvertise & friends):
+    // no client-side trick can shorten their waits, so we never bend time on
+    // them. If the user opts in, we ask the community bypass.city API instead
+    // (the same approach the popular Bypass All Shortlinks forks use).
+    const API_GATED_HOSTS = /(linkvertise\.(com|net)|work\.ink|wor\.ink|loot-?link\.(com|net)|loot\.link|best-links\.org|mobilism\.link|admaven\.com)/i;
 
     // Does this page look like a content blog (article) rather than a
     // shortener's own front/landing page?
@@ -238,7 +334,8 @@
     // Trail of pages this chain has already shown us. Gates like entiredust.in
     // ("step 2/3" + "click the photo, wait 15s, come back") shuffle you between a
     // handful of articles forever; revisiting a URL is the tell.
-    const HERE = location.href.split('#')[0];
+    // (let, not const: urlchange events can move us within the same document)
+    let HERE = location.href.split('#')[0];
 
     // Snapshot BEFORE anything writes to it: a marker written during this very
     // page load must never count as "we were here earlier in the chain".
@@ -319,6 +416,13 @@
         CFG.speedFactor = 1;
         CFG.firstClickDelayMs = Math.max(CFG.firstClickDelayMs, 2500);
     }
+    // Server-validated providers (linkvertise & friends): bending time only
+    // earns a rejection, so we are honest there from the very first hop.
+    if (API_GATED_HOSTS.test(HOST)) {
+        CFG.speedUpTimers = false;
+        CFG.warpClock = false;
+        CFG.speedFactor = 1;
+    }
 
     /* ───────────────── layer 1: timer acceleration ──────────────────── */
 
@@ -362,8 +466,23 @@
                 return orig.call(this, fn, delay, ...rest);
             };
             patched.__sasPatched = true;
-            try { PAGE[name] = patched; } catch (e) { log('cannot patch', name, e); }
+            try { PAGE[name] = exportToPage(patched); } catch (e) { log('cannot patch', name, e); }
         });
+        // some gates schedule their countdown through requestIdleCallback
+        try {
+            const ric = PAGE.requestIdleCallback;
+            if (typeof ric === 'function' && !ric.__sasPatched) {
+                rememberOriginal('requestIdleCallback', ric);
+                const ricPatched = function (fn, opts) {
+                    if (opts && typeof opts === 'object' && typeof opts.timeout === 'number') {
+                        opts = Object.assign({}, opts, { timeout: speed(opts.timeout) });
+                    }
+                    return ric.call(this, fn, opts);
+                };
+                ricPatched.__sasPatched = true;
+                PAGE.requestIdleCallback = exportToPage(ricPatched);
+            }
+        } catch (e) { /* not everywhere */ }
         log('timers accelerated x' + CFG.speedFactor);
     }
 
@@ -406,13 +525,19 @@
             const orig = PAGE.requestAnimationFrame;
             if (typeof orig !== 'function' || orig.__sasPatched) return;
             rememberOriginal('requestAnimationFrame', orig);
-            const base = (PAGE.performance && PAGE.performance.now) ? PAGE.performance.now() : 0;
+            // IMPORTANT: the rAF timestamp must come from the SAME clock the
+            // page reads via performance.now() — otherwise the two disagree and
+            // rAF-driven countdowns compute garbage deltas (mixing a warped
+            // baseline with raw frame timestamps used to freeze them for good).
+            const warpedNow = () => {
+                try { return PAGE.performance.now(); } catch (e) { return 0; }
+            };
             const wrapped = function (cb) {
                 if (typeof cb !== 'function') return orig.call(PAGE, cb);
-                return orig.call(PAGE, (ts) => cb(base + (ts - base) * CFG.speedFactor));
+                return orig.call(PAGE, () => cb(warpedNow()));
             };
             wrapped.__sasPatched = true;
-            PAGE.requestAnimationFrame = wrapped;
+            PAGE.requestAnimationFrame = exportToPage(wrapped);
             log('rAF accelerated x' + CFG.speedFactor);
         } catch (e) { /* ignore */ }
     }
@@ -428,6 +553,13 @@
                 if (typeof v === 'number' && v > 0 && v <= 600) { PAGE[name] = 0; }
             } catch (e) { /* cross-origin / getter-only */ }
         });
+        // boolean "you left the page" / "we detected something" flags these
+        // gates set and then never clear (uBlock filters do the same, e.g.
+        // linksfly: +js(set, blurred, false))
+        ['blurred', 'adblock', 'adBlockDetected', 'adblockDetected', 'isBlocked', 'notVerified']
+            .forEach(name => {
+                try { if (PAGE[name] === true) PAGE[name] = false; } catch (e) { /* ignore */ }
+            });
         // visible "15" / "10" countdown labels
         document.querySelectorAll('span,div,b,strong,p,h1,h2,h3,#timer,.timer,#countdown,.countdown,#count,.count').forEach(el => {
             if (el.children.length) return;
@@ -516,7 +648,9 @@
 
         // "Bad request" here almost always means we outran their backend: the
         // real URL is still being generated. Stop bending time on this host and
-        // simply try again after a few REAL seconds.
+        // try again — and on a server-timed final step, where the URL is minted
+        // by their server only after the full countdown, back off by the FULL
+        // remaining wait, not a token few seconds.
         SLOW_MODE = true;
         CFG.warpClock = false;
         CFG.speedUpTimers = false;
@@ -534,13 +668,20 @@
             stop();
             return;
         }
-        const waitMs = 3000 * serverErrors;      // 3s, 6s, 9s — real seconds
+        const providerFinish = providerFinishActive || isServerTimedFinalStep();
+        const waitMs = providerFinish
+            ? Math.max(3000 * serverErrors, requiredWaitMs() || 10000)   // their clock is the real kind
+            : 3000 * serverErrors;                                        // 3s, 6s, 9s — real seconds
+        if (providerFinish) providerArmAt = Math.max(providerArmAt, REAL_NOW() + waitMs);
         setBadge('server said "' + (m && m[0] ? m[0] : 'error') + '" — waiting ' +
             (waitMs / 1000) + 's and trying again');
         NATIVE.setTimeout(() => {
             serverErrorHandled = false;
             clickLog = new WeakMap();            // let the same button be pressed again
             coldElements = new WeakSet();
+            // finishAtProvider has its own interval driving this page — don't
+            // let a generic step() race it and press the button early again.
+            if (providerFinishActive) return;
             step(false);
         }, waitMs);
     }
@@ -580,6 +721,250 @@
             try { PAGE.addEventListener(type, swallow, true); } catch (e) { /* ignore */ }
         });
         log('visibility shield on');
+    }
+
+    /* ─── layer 1e: the trust shield (event.isTrusted) ──────────────────
+     * A growing family of gates (Soralink/pahe-style, modern AdLinkFly clones)
+     * check `event.isTrusted` in their click handlers: browser-fired events are
+     * true, script-dispatched ones are false, and the gate simply ignores ours.
+     * isTrusted itself cannot be forged on a real event — but the page only
+     * reads it through the listener it registered, so we wrap addEventListener
+     * and hand every SYNTHETIC event to page code through a Proxy that reports
+     * isTrusted: true. Real user events pass through untouched.
+     * (Same idea as BloggerPemula's TrustMe + uBO's trusted-click-element.) */
+    let trustShieldOn = false;
+    const listenerToShim = new WeakMap();
+
+    function trustedEventView(ev) {
+        return new Proxy(ev, {
+            get(target, prop) {
+                if (prop === 'isTrusted') return true;
+                if (prop === '__sasReal') return true;
+                try {
+                    const v = Reflect.get(target, prop, target);
+                    return (typeof v === 'function') ? v.bind(target) : v;
+                } catch (e) { return undefined; }
+            },
+        });
+    }
+
+    function installTrustShield() {
+        if (!CFG.trustEvents || trustShieldOn) return;
+        try {
+            const ET = PAGE.EventTarget || window.EventTarget;
+            if (!ET || !ET.prototype) return;
+            const origAdd = ET.prototype.addEventListener;
+            const origRemove = ET.prototype.removeEventListener;
+            if (typeof origAdd !== 'function' || origAdd.__sasPatched) return;
+
+            const shimFor = (listener) => {
+                let shim = listenerToShim.get(listener);
+                if (shim) return shim;
+                shim = function (ev) {
+                    try {
+                        if (ev && ev.isTrusted === false) ev = trustedEventView(ev);
+                    } catch (e) { /* hand over the original */ }
+                    return (typeof listener === 'function')
+                        ? listener.call(this, ev)
+                        : listener.handleEvent(ev);
+                };
+                try { listenerToShim.set(listener, shim); } catch (e) { /* ignore */ }
+                return shim;
+            };
+
+            const addWrapped = function (type, listener, options) {
+                if (typeof listener !== 'function' &&
+                    !(listener && typeof listener.handleEvent === 'function')) {
+                    return origAdd.apply(this, arguments);
+                }
+                // fast path: real user events must behave 100% normally, so the
+                // shim only rewrites genuinely untrusted ones
+                return origAdd.call(this, type, shimFor(listener), options);
+            };
+            addWrapped.__sasPatched = true;
+            ET.prototype.addEventListener = exportToPage(addWrapped);
+
+            if (typeof origRemove === 'function' && !origRemove.__sasPatched) {
+                const removeWrapped = function (type, listener, options) {
+                    try {
+                        const shim = listener && listenerToShim.get(listener);
+                        if (shim) origRemove.call(this, type, shim, options);
+                    } catch (e) { /* ignore */ }
+                    return origRemove.call(this, type, listener, options);
+                };
+                removeWrapped.__sasPatched = true;
+                ET.prototype.removeEventListener = exportToPage(removeWrapped);
+            }
+            trustShieldOn = true;
+            log('trust shield on (isTrusted)');
+        } catch (e) { log('trust shield failed', e); }
+    }
+
+    // Fallback for handlers registered BEFORE the shield went up (typical when
+    // the heuristic only engages after DOM ready): call the gate's own jQuery
+    // handlers directly with a hand-made trusted event — the documented
+    // workaround for jQuery-delegated isTrusted checks.
+    function jqTrustedClick(el) {
+        let $ = null;
+        try { $ = PAGE.jQuery || (PAGE.$ && PAGE.$.fn && PAGE.$); } catch (e) { /* ignore */ }
+        if (!$ || !$.event || !$._data) return false;
+        let acted = false;
+        const fake = (target, current) => ({
+            type: 'click', isTrusted: true, target, currentTarget: current,
+            delegateTarget: current, timeStamp: Date.now(), which: 1, button: 0,
+            clientX: 1, clientY: 1, pageX: 1, pageY: 1,
+            originalEvent: { isTrusted: true, target, type: 'click' },
+            preventDefault() { }, stopPropagation() { }, stopImmediatePropagation() { },
+            isDefaultPrevented() { return false; }, isPropagationStopped() { return false; },
+        });
+        let node = el;
+        while (node && node.nodeType === 1) {
+            let evts = null;
+            try { evts = $._data(node, 'events'); } catch (e) { /* ignore */ }
+            if (evts && evts.click) {
+                evts.click.forEach(h => {
+                    try {
+                        if (h.selector) {
+                            let t = el;
+                            while (t && t !== node) {
+                                if (t.matches && t.matches(h.selector)) break;
+                                t = t.parentElement;
+                            }
+                            if (t && t !== node) { h.handler.call(node, fake(t, node)); acted = true; }
+                        } else if (node === el) {
+                            h.handler.call(el, fake(el, el));
+                            acted = true;
+                        }
+                    } catch (e) { /* ignore */ }
+                });
+            }
+            node = node.parentElement;
+        }
+        if (acted) log('invoked jQuery click handlers directly (isTrusted)');
+        return acted;
+    }
+
+    /* ─── layer 1f: dialog traps, adblock nags, meta-refresh waits ────── */
+
+    // Gates love alert()/confirm() nag loops and onbeforeunload "are you sure"
+    // traps that stall the chain. Neutralised ONLY on pages we engaged on.
+    function neutralizeDialogs() {
+        if (!CFG.blockDialogs) return;
+        try { PAGE.onbeforeunload = null; } catch (e) { /* ignore */ }
+        try {
+            Object.defineProperty(PAGE, 'onbeforeunload',
+                { get: () => null, set: () => { }, configurable: true });
+        } catch (e) { /* ignore */ }
+        [['alert', function () { }], ['confirm', function () { return true; }],
+        ['prompt', function () { return null; }]].forEach(([name, fn]) => {
+            try {
+                if (typeof PAGE[name] === 'function' && !PAGE[name].__sasPatched) {
+                    fn.__sasPatched = true;
+                    PAGE[name] = exportToPage(fn);
+                }
+            } catch (e) { /* ignore */ }
+        });
+        log('dialog traps disabled');
+    }
+
+    // Adblock-detector scripts (FuckAdBlock & friends) stall the gate behind a
+    // "disable your adblock" wall; drop them as they appear (engaged pages only).
+    const ADBLOCK_NAG = /(blockadblock|fuckadblock|adblock-?detect|anti-?adblock|checkadblock|detectadblock|justdetectadb|disabledevtool|adblockdetector|adbkit)/i;
+    function killAdblockNag() {
+        if (!CFG.killAdblockNag) return;
+        const drop = (n) => {
+            if (!n || n.nodeType !== 1) return;
+            const src = (n.tagName === 'SCRIPT' || n.tagName === 'IFRAME') ? (n.src || n.getAttribute('src') || '') : '';
+            if (src && ADBLOCK_NAG.test(src)) {
+                try { n.remove(); log('removed adblock nag:', src.slice(0, 80)); } catch (e) { /* ignore */ }
+            }
+        };
+        try {
+            document.querySelectorAll('script[src], iframe[src]').forEach(drop);
+        } catch (e) { /* ignore */ }
+        try {
+            const mo = new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(drop)));
+            mo.observe(document.documentElement, { childList: true, subtree: true });
+        } catch (e) { /* ignore */ }
+    }
+
+    // Browser-native waits via <meta http-equiv=refresh content="15;url=…"> are
+    // not setTimeout — rewrite the delay once per element (rewriting again would
+    // restart the browser's countdown, so never do that).
+    const spedMeta = new WeakSet();
+    function speedMetaRefresh() {
+        if (!CFG.speedMetaRefresh) return;
+        let metas;
+        try { metas = document.querySelectorAll('meta[http-equiv="refresh" i]'); } catch (e) { return; }
+        metas.forEach(m => {
+            if (spedMeta.has(m)) return;
+            const c = (m.getAttribute('content') || '').trim();
+            const mm = c.match(/^(\d+(?:\.\d+)?)\s*;?\s*url\s*=\s*(.+)$/i);
+            if (!mm) return;
+            const delay = parseFloat(mm[1]);
+            const url = mm[2].replace(/^['"]|['"]$/g, '');
+            if (!(delay >= 2) || !url) return;
+            const scale = SLOW_MODE ? 1 : Math.max(1, CFG.speedFactor);
+            const fast = Math.max(0.05, delay / scale);
+            spedMeta.add(m);
+            try {
+                m.setAttribute('content', fast.toFixed(3) + '; url=' + url);
+                log('meta refresh', delay + 's ->', fast.toFixed(2) + 's');
+            } catch (e) { /* ignore */ }
+        });
+    }
+
+    /* ─── layer 1g: captcha awareness + tiny math-captcha solver ──────── */
+
+    let captchaWasPending = false;
+    function captchaPending() {
+        let widget = false;
+        try {
+            widget = !!document.querySelector(
+                'iframe[src*="recaptcha"] , iframe[src*="hcaptcha.com"], iframe[src*="challenges.cloudflare.com"], ' +
+                '.g-recaptcha, .h-captcha, [data-sitekey]');
+        } catch (e) { /* ignore */ }
+        if (!widget) return false;
+        try {
+            if (PAGE.grecaptcha && PAGE.grecaptcha.getResponse && PAGE.grecaptcha.getResponse()) return false;
+            if (PAGE.hcaptcha && PAGE.hcaptcha.getResponse && PAGE.hcaptcha.getResponse()) return false;
+            if (PAGE.turnstile && PAGE.turnstile.getResponse && PAGE.turnstile.getResponse()) return false;
+        } catch (e) { /* ignore */ }
+        return true;
+    }
+
+    // "Solve: 7 + 5 = ?" with an empty input next to it (engaged pages only).
+    function solveMathCaptcha() {
+        if (!CFG.solveMath) return false;
+        let inputs;
+        try { inputs = document.querySelectorAll('input[type="text"], input:not([type])'); }
+        catch (e) { return false; }
+        for (const inp of inputs) {
+            if ((inp.value || '').trim() || inp.disabled || !isVisible(inp)) continue;
+            const scope = (inp.closest && (inp.closest('form') || inp.closest('div, li, p, td, section'))) || inp.parentElement;
+            if (!scope) continue;
+            const t = (scope.innerText || scope.textContent || '');
+            if (!/solve|what\s+is|calculate|answer|verific|captcha|=\s*\?|\?\s*=/i.test(t)) continue;
+            const m = t.match(/(\d{1,3})\s*([+\-x×*÷\/])\s*(\d{1,3})/);
+            if (!m) continue;
+            const a = Number(m[1]), b = Number(m[3]);
+            let ans = null;
+            switch (m[2]) {
+                case '+': ans = a + b; break;
+                case '-': ans = a - b; break;
+                case 'x': case '×': case '*': ans = a * b; break;
+                case '÷': case '/': ans = (b && a % b === 0) ? a / b : null; break;
+            }
+            if (ans === null) continue;
+            try {
+                inp.value = String(ans);
+                inp.dispatchEvent(new PAGE.Event('input', { bubbles: true }));
+                inp.dispatchEvent(new PAGE.Event('change', { bubbles: true }));
+                log('math captcha solved:', a, m[2], b, '=', ans);
+                return true;
+            } catch (e) { /* ignore */ }
+        }
+        return false;
     }
 
     function fire(target, type) {
@@ -643,7 +1028,7 @@
         if (!CFG.blockPopups) return;
         try {
             const origOpen = PAGE.open;
-            PAGE.open = function (url) {
+            const patchedOpen = function (url) {
                 // Hand back a believable window: gates (and adblock detectors) check
                 // the return value, and popunder code polls `closed`. Nothing opens.
                 const fake = {
@@ -656,7 +1041,8 @@
                 log('blocked popup ->', url);
                 return fake;
             };
-            PAGE.open.__sasPatched = true;
+            patchedOpen.__sasPatched = true;
+            PAGE.open = exportToPage(patchedOpen);
             PAGE.__sasOrigOpen = origOpen;
         } catch (e) { /* ignore */ }
 
@@ -664,6 +1050,11 @@
         document.addEventListener('click', (e) => {
             const a = e.target && e.target.closest && e.target.closest('a[target="_blank"]');
             if (a && !AD_HOSTS.test(a.href || '')) a.removeAttribute('target');
+        }, true);
+        // …and the same for forms that would open the next step in a new tab
+        document.addEventListener('submit', (e) => {
+            const f = e.target;
+            if (f && f.tagName === 'FORM' && f.target === '_blank') f.removeAttribute('target');
         }, true);
     }
 
@@ -700,6 +1091,62 @@
             if (looksLikeUrl(dec)) return dec;
         }
         return null;
+    }
+
+    // AdLinkFly-style "any parameter whose value is a full URL" (e.g.
+    // ?go=https://…, ?x=aHR0cHM…). Only trusted on pages we already engaged on,
+    // and never for referrer/campaign-ish params — those point BACK into the
+    // chain, not at the destination.
+    const NON_DEST_PARAMS = /^(ref|referer|referrer|return|returnto|callback|source|src|from|via|back|origin|state|redirect_uri|next_url|csrf|token|sid|id|utm_[a-z_]+)$/i;
+    function urlInQuery() {
+        if (!CFG.followRedirectParams) return null;
+        try {
+            const qs = new URLSearchParams(location.search);
+            let found = null;
+            qs.forEach((v, k) => {
+                if (found) return;
+                if (NON_DEST_PARAMS.test(k)) return;
+                let val = v;
+                try { val = decodeURIComponent(v); } catch (e) { /* ignore */ }
+                if (looksLikeUrl(val)) { found = val; return; }
+                const dec = b64(v);
+                if (looksLikeUrl(dec)) found = dec;
+            });
+            return found;
+        } catch (e) { return null; }
+    }
+
+    // #https://dest or #aHR0cHM6Ly… or #/r?url=… — several families put the
+    // target in the fragment so caches never see it.
+    function urlInHash() {
+        try {
+            const h = location.hash.replace(/^#/, '');
+            if (!h || h.length < 8) return null;
+            if (/^https?:\/\//i.test(h)) return h;
+            const m = h.match(/[?&](url|u|r|link|dest|goto|go|target|a)=(.+)$/i);
+            if (m) {
+                let v = m[2];
+                try { v = decodeURIComponent(v); } catch (e) { /* ignore */ }
+                if (looksLikeUrl(v)) return v;
+                const dec = b64(m[2]);
+                if (looksLikeUrl(dec)) return dec;
+            }
+            if (/^\/?[A-Za-z0-9+/=_-]{16,}$/.test(h)) {
+                const dec = b64(h.replace(/^\//, ''));
+                if (looksLikeUrl(dec)) return dec;
+            }
+        } catch (e) { /* ignore */ }
+        return null;
+    }
+
+    // ROT13 — several kits ship the destination "encrypted" this way
+    // (BloggerPemula's Decrypter() exists for exactly this).
+    function rot13(s) {
+        return String(s).replace(/[a-zA-Z]/g, c => {
+            const base = c <= 'Z' ? 90 : 122;
+            const code = c.charCodeAt(0) + 13;
+            return String.fromCharCode(base >= code ? code : code - 26);
+        });
     }
 
     // Classic AdFly / adf.ly style "ysmm" payload.
@@ -745,7 +1192,7 @@
             return true;
         }
 
-        const dest = fromParams() || fromAdfly();
+        const dest = fromParams() || urlInQuery() || urlInHash() || fromAdfly();
         if (dest && dest.replace(/\/$/, '') !== location.href.replace(/\/$/, '')) {
             const destHost = (() => { try { return new URL(dest).hostname.replace(/^www\./, ''); } catch (e) { return ''; } })();
             if (destHost && destHost !== HOST && !AD_HOSTS.test(destHost)) {
@@ -756,6 +1203,57 @@
             }
         }
         return false;
+    }
+
+    /* ── optional: community API fallback for server-validated providers ──
+     * linkvertise / work.ink / lootlink / admaven compute the destination on
+     * THEIR server after a validated wait — no client-side trick works. The
+     * popular scripts (Bypass All Shortlinks forks) send those URLs to the
+     * community bypass.city resolver instead. OFF by default because it shares
+     * the link you opened with a third-party service; enable it in the menu. */
+    function tryApiFallback() {
+        if (!CFG.useApiFallback || IN_FRAME) return;
+        if (typeof GM_xmlhttpRequest !== 'function') return;
+        if (!API_GATED_HOSTS.test(HOST)) return;
+        const key = 'sas_api_try_' + HERE;
+        try {
+            if (sessionStorage.getItem(key)) return;     // one attempt per URL
+            sessionStorage.setItem(key, '1');
+        } catch (e) { /* ignore */ }
+        setBadge('asking the bypass.city resolver for the real link…');
+        log('API fallback ->', 'https://api.bypass.city/v9?' + HERE);
+        try {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: 'https://api.bypass.city/v9?' + encodeURIComponent(HERE),
+                timeout: 20000,
+                onload(res) {
+                    let dest = '';
+                    try {
+                        const data = JSON.parse(res.responseText);
+                        dest = (data && (data.url || data.destination ||
+                            (data.data && (data.data.url || data.data.destination)) ||
+                            (data.result && data.result.url))) || '';
+                    } catch (e) { /* not json */ }
+                    if (!dest) { log('API fallback: no usable answer'); return; }
+                    let ok = '';
+                    try {
+                        const u = new URL(dest, location.href);
+                        const h = u.hostname.replace(/^www\./, '');
+                        if (h !== HOST && !AD_HOSTS.test(h + '.') && !JUNK_LINK_HOSTS.test(u.hostname)) ok = u.href;
+                    } catch (e) { /* ignore */ }
+                    if (ok) {
+                        log('API fallback ->', ok);
+                        markChainDone('bypass.city resolver');
+                        location.replace(ok);
+                    } else {
+                        log('API fallback: answer rejected (untrusted)', dest.slice(0, 120));
+                    }
+                },
+                onerror() { log('API fallback: unreachable'); },
+                ontimeout() { log('API fallback: timeout'); },
+            });
+        } catch (e) { log('API fallback failed', e); }
     }
 
     /* ─────────────── layer 2: find & click the step button ──────────── */
@@ -979,11 +1477,23 @@
     }
 
     function realClick(el) {
-        const opts = { bubbles: true, cancelable: true, view: PAGE, button: 0 };
+        let r = { left: 0, top: 0, width: 0, height: 0 };
+        try { if (el.getBoundingClientRect) r = el.getBoundingClientRect(); } catch (e) { /* ignore */ }
+        // centered coordinates — gates that validate "the click was inside the
+        // button" reject the default (0,0) events
+        const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+        const opts = {
+            bubbles: true, cancelable: true, view: PAGE, button: 0,
+            clientX: x, clientY: y, screenX: x, screenY: y + 80,
+        };
         try { el.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
+        // some gates only arm their handler after real pointer/touch activity
+        ['pointermove', 'mousemove', 'pointerover', 'mouseover', 'touchstart'].forEach(type => {
+            try { document.dispatchEvent(new PAGE.Event(type, { bubbles: true, cancelable: true })); } catch (e) { /* ignore */ }
+        });
         // down/up only — the actual 'click' is fired once, below, so handlers
         // never run twice (that would skip a step or double-submit).
-        ['pointerover', 'mouseover', 'pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(type => {
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(type => {
             try {
                 const Ev = type.startsWith('pointer') && PAGE.PointerEvent ? PAGE.PointerEvent : PAGE.MouseEvent;
                 el.dispatchEvent(new Ev(type, opts));
@@ -1120,15 +1630,18 @@
         return found;
     }
 
-    function clickOnce(el, why) {
+    function clickOnce(el, why, noUnlock) {
         if (!el || !mayClick(el)) return false;
         if (clickCount >= CFG.maxClicksPerPage) { setBadge('click limit reached'); stop(); return false; }
         const rec = clickLog.get(el) || { n: 0 };
         clickLog.set(el, { sig: signature(el), at: Date.now(), n: rec.n + 1, fp: pageFingerprint() });
         clickCount++;
         watchEffect(el, rec.n + 1);
-        unlock(el);
+        if (!noUnlock) unlock(el);
         realClick(el);
+        // a button we already know is inert very likely has an isTrusted-guarded
+        // jQuery handler registered before our shield went up — call it directly
+        if (coldElements.has(el)) jqTrustedClick(el);
         log('clicked', why, '->', textOf(el) || el.id || el.className);
         setBadge('clicked "' + (textOf(el) || el.id || 'step') + '"');
         return true;
@@ -1137,6 +1650,7 @@
     function step(loose) {
         if (!CFG.enabled) return;
         zeroCounters();
+        speedMetaRefresh();
         if (CFG.actionMode === 'assist') { highlightButtons(false); return; }
         // Their timer is still visibly ticking: wait instead of spending clicks on
         // a button that is not armed yet (this is what broke entiredust.in).
@@ -1146,6 +1660,22 @@
         }
         checkServerError();
         if (serverErrorHandled) return;
+
+        // A captcha only a human can solve: wait for it, then continue with a
+        // fresh click budget the moment it is done (Bypass-All-Shortlinks-style
+        // CaptchaDone behaviour).
+        if (captchaPending()) {
+            if (clickCount > 0) {
+                captchaWasPending = true;
+                setBadge('🧩 solve the captcha — auto-skip continues right after');
+                return;
+            }
+        } else if (captchaWasPending) {
+            captchaWasPending = false;
+            coldElements = new WeakSet();
+            clickLog = new WeakMap();
+            log('captcha solved — fresh click budget');
+        }
 
         // Their server is still working on the real URL — clicking now is what
         // produces "Bad Request". Wait for it (up to ~12s) before touching anything.
@@ -1172,6 +1702,7 @@
         }
 
         if (soralinkStep()) return;
+        if (solveMathCaptcha()) { /* input filled — the gate will now arm */ }
         pendingVerifyFlag = pendingVerify();
         satisfyAdClick();
         maybeRoundTrip();
@@ -1207,6 +1738,7 @@
             if (n >= 2) {
                 coldElements.add(el);      // deprioritised, NOT banned — their timer may still arm it
                 log('no effect yet (will retry with backoff):', textOf(el) || el.id);
+                jqTrustedClick(el);        // pre-shield jQuery handlers get called directly
             }
             // A Verify that ignores us usually wants proof you visited the ad:
             // fake the whole leave-and-come-back trip, then try it again at once.
@@ -1412,10 +1944,40 @@
                 weakVals.push(o.url, o.link);
                 return;
             }
+            // current kits also use: reversed base64 (work.ink style),
+            // double base64, and base64 of a ROT13'd URL
+            const variants = [b, String(b).split('').reverse().join('')];
+            for (const v of variants) {
+                try {
+                    let dec = atob(v.replace(/-/g, '+').replace(/_/g, '/'));
+                    if (/^https?:\/\//i.test(dec)) { weakVals.push(dec.trim()); return; }
+                    try { dec = atob(dec); } catch (e) { /* single */ }
+                    if (/^https?:\/\//i.test(dec)) { weakVals.push(dec.trim()); return; }
+                } catch (e) { /* not base64 */ }
+                try {
+                    const decR = rot13(atob(v.replace(/-/g, '+').replace(/_/g, '/')));
+                    if (/^https?:\/\//i.test(decR)) { weakVals.push(decR.trim()); return; }
+                } catch (e) { /* not base64 */ }
+            }
             try {
                 const dec = atob(b);
                 if (/^https?:\/\//i.test(dec)) weakVals.push(dec.trim());
             } catch (e) { /* not base64 */ }
+        });
+        // 3b. hex / percent escaped URLs: "\x68\x74\x74\x70…" or "%68%74%74%70…"
+        const hexEsc = scripts.match(/((?:\\x[0-9a-f]{2}){12,})/gi) || [];
+        hexEsc.slice(0, 10).forEach(h => {
+            try {
+                const dec = h.replace(/\\x([0-9a-f]{2})/gi, (_, c) => String.fromCharCode(parseInt(c, 16)));
+                if (/^https?:\/\//i.test(dec)) weakVals.push(dec.trim());
+            } catch (e) { /* ignore */ }
+        });
+        const pctEsc = scripts.match(/((?:%[0-9a-f]{2}){12,})/gi) || [];
+        pctEsc.slice(0, 10).forEach(h => {
+            try {
+                const dec = decodeURIComponent(h);
+                if (/^https?:\/\//i.test(dec)) weakVals.push(dec.trim());
+            } catch (e) { /* ignore */ }
         });
 
         // 4. data-* attributes holding a URL
@@ -1596,7 +2158,7 @@
         // whatever launches next week) are recognised on the way back too.
         const chain = chainGet();
         const age = chain.at ? Date.now() - chain.at : Infinity;
-        if (!isGateBlogHost() && !looksLikeBlogPage() && (age > 30 * 60 * 1000 || !chain.origin)) {
+        if (!isGateBlogHost() && !looksLikeBlogPage() && (age > CHAIN_TTL || !chain.origin)) {
             chainSet({ origin: HOST, at: Date.now() });
             try { sessionStorage.setItem('sas_origin', HOST); } catch (e) { /* ignore */ }
             log('chain origin =', HOST, '(shared across domains)');
@@ -1609,7 +2171,12 @@
     }
 
     function chainFinished() {
-        try { return sessionStorage.getItem('sas_done') === '1'; } catch (e) { return false; }
+        try {
+            const v = sessionStorage.getItem('sas_done');
+            if (!v) return false;
+            if (v === '1') return true;                     // legacy marker
+            return Date.now() - parseInt(v, 10) < 5 * 60 * 1000;   // fresh "done" only
+        } catch (e) { return false; }
     }
 
     // Is this page the shortener provider's own website (not a partner blog)?
@@ -1657,10 +2224,11 @@
     // has walked through. Same-host multi-step gates (vplink 1 -> vplink 2,
     // gplinks, earnlinks) must NOT look like a return — that mistake is what
     // disabled timer-skipping on perfectly normal gate pages.
+    const CHAIN_TTL = 15 * 60 * 1000;  // a quiet chain is a finished chain
     function noteHostSequence() {
         const chain = chainGet();
         const age = chain.at ? Date.now() - chain.at : Infinity;
-        if (age > 30 * 60 * 1000 || !Array.isArray(chain.hosts)) {
+        if (age > CHAIN_TTL || !Array.isArray(chain.hosts)) {
             const fresh = { origin: HOST, at: Date.now(), hosts: [HOST] };
             chainSet(fresh);
             return fresh.hosts;
@@ -1668,7 +2236,8 @@
         const hosts = chain.hosts.slice();
         if (hosts[hosts.length - 1] !== HOST) hosts.push(HOST);   // consecutive dupes collapsed
         if (hosts.length > 24) hosts.splice(0, hosts.length - 24);
-        chainSet({ origin: chain.origin || HOST, at: chain.at || Date.now(), hosts });
+        // `at` = last activity, so a long-running chain never looks stale
+        chainSet({ origin: chain.origin || HOST, at: Date.now(), hosts });
         return hosts;
     }
 
@@ -1758,13 +2327,31 @@
         return generic || null;
     }
 
+    // Honest finishing of the provider's final page: their countdown is checked
+    // server side and the URL is generated server side, so we (1) never skip
+    // their timer, (2) sit out the page's stated wait in REAL seconds before
+    // the first press, (3) only ever press a control the PAGE itself has
+    // enabled — no force-unlocking — and (4) if their server still says no, we
+    // back off by the full remaining wait, not a token 3s.
+    let providerFinishActive = false;
+    let providerArmAt = 0;          // REAL time before which pressing is pointless
+
     function finishAtProvider() {
         restoreNative();                       // their countdown ticks at real speed
         CFG.speedFactor = 1;
         CFG.speedUpTimers = false;
         CFG.warpClock = false;
-        try { sessionStorage.setItem('sas_done', '1'); } catch (e) { /* ignore */ }
-        log('provider final step on ' + HOST + ' — honest timing, auto-finish');
+        providerFinishActive = true;
+        markChainState('done');
+        chainClear();                          // a finished chain must not poison the next one
+        // the page's own "wait N seconds" — honoured in REAL time (the classic
+        // gplinks bypasses sleep ~10s before POSTing /links/go for exactly this
+        // reason), with a small floor for pages whose button is born enabled
+        const statedMs = requiredWaitMs();
+        const firstPressAfter = Math.max(statedMs, 3500);
+        providerArmAt = Math.max(providerArmAt, ENGAGED_AT + firstPressAfter);
+        log('provider final step on ' + HOST + ' — honest timing, auto-finish' +
+            (statedMs ? ' (their ' + (statedMs / 1000) + 's wait is real)' : ''));
         setBadge('last step at ' + HOST + ' — waiting out their real timer…');
 
         let ticks = 0;
@@ -1772,45 +2359,66 @@
         const iv = NATIVE.setInterval(() => {
             ticks++;
             if (!CFG.enabled) { NATIVE.clearInterval(iv); return; }
+            if (CFG.actionMode === 'assist') return;   // a human has taken over
             if (ticks > 200) {                 // ~2.5 minutes: give it to the user
                 NATIVE.clearInterval(iv);
                 enterAssist('their timer is unusually long — press it when ready');
                 return;
             }
-            if (serverErrorHandled) return;    // a retry is already scheduled
+            checkServerError();                // a 400 schedules an honest retry below
+            if (serverErrorHandled) return;
+            if (REAL_NOW() < providerArmAt) {
+                setBadge('their timer is the real kind — waiting ' +
+                    Math.ceil((providerArmAt - REAL_NOW()) / 1000) + 's before pressing');
+                return;
+            }
             if (networkBusy()) { setBadge('waiting for their server…'); return; }
             if (hasLiveCountdown()) { setBadge('their countdown is running — waiting (no skipping)'); return; }
 
             const el = providerFinalControl();
             if (!el) return;
+            // A form is only a proxy for its own submit button — press THAT so
+            // the page's own JS does the talking (their AJAX POST with the
+            // x-requested-with header, which a native submit() would skip).
+            let ctrl = el;
+            if (el.tagName === 'FORM') {
+                ctrl = el.querySelector('button[type="submit"], input[type="submit"], ' +
+                    'button:not([type="button"])') || el;
+            }
+            if (isDisabled(ctrl)) {         // the PAGE arms the control, not us
+                setBadge('waiting for their button to unlock by itself…');
+                return;
+            }
 
-            const href = el.tagName === 'A' ? el.getAttribute('href') : '';
-            if (href && /^https?:/i.test(href) && !isJunkLink(el)) {
+            const href = ctrl.tagName === 'A' ? ctrl.getAttribute('href') : '';
+            if (href && /^https?:/i.test(href) && !isJunkLink(ctrl)) {
                 NATIVE.clearInterval(iv);
                 setBadge('unlocked — opening your link');
                 log('provider: following unlocked link', href);
                 location.assign(href);
                 return;
             }
-            if (el.tagName === 'FORM') {
+            if (ctrl === el && el.tagName === 'FORM') {
                 if (clicked++) return;
                 setBadge('unlocked — submitting the final form');
                 log('provider: submitting', el.id || 'form');
                 try { el.submit(); } catch (e) { /* ignore */ }
                 return;
             }
-            if (!mayClick(el)) return;
-            setBadge('unlocked — pressing "' + (textOf(el) || 'Get Link').slice(0, 22) + '"');
-            clickOnce(el, 'provider final');
+            if (!mayClick(ctrl)) return;
+            setBadge('unlocked — pressing "' + (textOf(ctrl) || 'Get Link').slice(0, 22) + '"');
+            clickOnce(ctrl, 'provider final', true);   // true = never force-unlock: the page decides
         }, 700);
     }
 
-    function stopAtProvider() {
+    function stopAtProvider(reason) {
         restoreNative();          // never skip their timer on this page
         try {
             sessionStorage.removeItem('sas_chain');
             sessionStorage.removeItem('sas_trail');
         } catch (e) { /* ignore */ }
+        chainClear();             // the chain is over — don't poison the next one
+        log('back at the shortener provider (' + HOST + ')' + (reason ? ' — ' + reason : ''));
 
         if (CFG.providerMode === 'finish' && CFG.actionMode !== 'assist') {
             finishAtProvider();   // automatic: wait honestly, then click for you
@@ -1818,7 +2426,7 @@
         }
         CFG.enabled = false;
         stop();
-        try { sessionStorage.setItem('sas_done', '1'); } catch (e) { /* ignore */ }
+        markChainState('done');
         log('back at the shortener provider (' + HOST + ') — assist mode');
         CFG.actionMode = 'assist';
         NATIVE.setTimeout(() => {
@@ -1828,18 +2436,67 @@
         }, 900);
     }
 
-    function markChainDone(why) {
+    function markChainState(kind) {
         try {
-            sessionStorage.removeItem('sas_chain');
-            sessionStorage.removeItem('sas_trail');
-            sessionStorage.setItem('sas_done', '1');
+            if (kind === 'done') {
+                sessionStorage.removeItem('sas_chain');
+                sessionStorage.removeItem('sas_trail');
+                sessionStorage.setItem('sas_done', String(Date.now()));
+            }
         } catch (e) { /* ignore */ }
+    }
+
+    function markChainDone(why) {
+        markChainState('done');
+        chainClear();                 // never let a finished chain look "active"
         log('chain finished:', why);
         setBadge('✅ destination reached — stopped here');
         NATIVE.setTimeout(stop, 6000);
     }
 
     /* ─────────────────────── page qualification ─────────────────────── */
+
+    // Cloudflare / anti-bot interstitials must be left completely alone: patching
+    // their timers or clicking on them can make the challenge fail, which locks
+    // the user out of the site. (Same guard the popular bypass scripts use.)
+    function isChallengePage() {
+        try {
+            const t = document.title || '';
+            if (/just a moment|attention required|checking your browser|security check|please wait a moment|un momentito|verificando seu navegador/i.test(t)) return true;
+            if (document.querySelector && document.querySelector(
+                '#challenge-form, #challenge-error-title, #challenge-running, #cf-challenge-running, ' +
+                '.spacer-top.spacer.core-msg, script[src*="/cdn-cgi/challenge-platform/"]')) return true;
+        } catch (e) { /* no DOM yet */ }
+        return /\/cdn-cgi\/(challenge-platform|trace)/.test(location.pathname);
+    }
+
+    // An iframe on an ad-network domain is an AD, not a gate widget — clicking
+    // inside it would be clicking the ad itself.
+    function isAdFrame() {
+        return IN_FRAME && AD_HOSTS.test(HOST + '.');
+    }
+
+    // The AdLinkFly-family FINAL step: the page carries the go-link form (or its
+    // captcha-submit button / unlocked get-link anchor), the countdown is
+    // validated SERVER side and the destination URL is minted by THEIR server
+    // (POST /links/go — the classic gplinks bypasses literally sleep(10) before
+    // posting, and Bypass-All-Shortlinks only navigates when the answer's
+    // status is not "error"). Pressing the button early = 400 Bad Request, so
+    // on these pages we never bend time, never force-unlock anything and wait
+    // out the page's own countdown in REAL seconds — even when we failed to
+    // recognise this as "back at the provider".
+    function hasServerTimedMarkers() {
+        try {
+            return !!document.querySelector(
+                'form#go-link, form#form-go, form#setc, form[action*="/links/go"], ' +
+                '#invisibleCaptchaShortlink, .btn-captcha, a.get-link[href], a#getlink[href]');
+        } catch (e) { return false; }
+    }
+
+    function isServerTimedFinalStep() {
+        if (API_GATED_HOSTS.test(HOST)) return true;
+        return hasServerTimedMarkers();
+    }
 
     function isKnownHost() {
         return KNOWN_HOSTS.some(h => HOST === h || HOST.endsWith('.' + h));
@@ -1977,6 +2634,36 @@
         } catch (e) { /* ignore */ }
     })();
 
+    // A brand-new short link (short-code path) opened after the previous chain
+    // went quiet is a NEW chain — drop any leftover host trail / "done" marker,
+    // or the very next link would be misread as "back at the provider" and lose
+    // all its timer skipping. (The #1 "it stopped working" report.)
+    // The quiet window is deliberately LONG (8 min): a slow-but-active chain
+    // (a captcha to solve, a server race to retry, an honest step to sit out)
+    // must never have its trail wiped — that is exactly what made the script
+    // stop recognising the return to the provider and hammer "Get Link" into a
+    // 400 Bad Request.
+    (function freshChainReset() {
+        try {
+            if (!looksLikeShortCodeUrl() || isGateBlogHost() || IN_FRAME) return;
+            const chain = chainGet();
+            const stale = !chain.at || (Date.now() - chain.at > 8 * 60 * 1000);   // 8 min quiet
+            const doneRaw = sessionStorage.getItem('sas_done');
+            if (stale || !Array.isArray(chain.hosts) || !chain.hosts.length) {
+                chainSet({ origin: HOST, at: Date.now(), hosts: [HOST] });
+                sessionStorage.removeItem('sas_done');
+                sessionStorage.removeItem('sas_trail');
+                sessionStorage.removeItem('sas_hops_' + HOST);
+            } else if (doneRaw) {
+                // active chain that just finished: a fresh short-code URL = new chain
+                chainSet({ origin: HOST, at: Date.now(), hosts: [HOST] });
+                sessionStorage.removeItem('sas_done');
+                sessionStorage.removeItem('sas_trail');
+                sessionStorage.removeItem('sas_hops_' + HOST);
+            }
+        } catch (e) { /* ignore */ }
+    })();
+
     // Are we ALREADY back at the provider? This has to be answerable at
     // document-start (no DOM yet), or we would speed up their final timer before
     // realising we should not touch this page at all.
@@ -1992,22 +2679,35 @@
     })();
 
     // At document-start we only touch pages we already know are gates, so a
-    // normal website never gets its timers or popups messed with.
-    const earlyEngage = CFG.enabled && !providerReturnEarly &&
+    // normal website never gets its timers or popups messed with. Ad-network
+    // iframes and Cloudflare-style challenges are never touched at all.
+    const earlyEngage = CFG.enabled && !providerReturnEarly && !isAdFrame() &&
         (isKnownHost() || CFG.genericMode === 'aggressive');
     if (earlyEngage) {
-        patchTimers();
-        patchClock();
-        patchRaf();
+        if (!API_GATED_HOSTS.test(HOST)) {
+            patchTimers();
+            patchClock();
+            patchRaf();
+        }
+        installTrustShield();       // before the page registers its handlers
         shieldVisibility();
         patchNetwork();
         blockPopups();
         zeroCounters();
         if (tryShortcut()) return;
+        tryApiFallback();
     }
 
     function start() {
         if (providerReturnEarly) { stopAtProvider(); return; }   // decided before any patching
+        // Cloudflare / anti-bot challenge: hands completely off (undo anything
+        // earlyEngage already patched before the DOM revealed it).
+        if (isChallengePage()) {
+            if (ORIGINALS.Date || ORIGINALS.setTimeout) restoreNative();
+            log('challenge page — staying idle');
+            return;
+        }
+        if (isAdFrame()) { log('ad iframe — staying idle'); return; }
         if (looksLikeDestination()) { markChainDone('file/destination URL'); return; }
         if (CFG.stopAtShortener && isShortenerSite() && returningToProvider()) { stopAtProvider(); return; }
         // Already finished this chain: never touch anything again (no extra hop).
@@ -2024,17 +2724,32 @@
         }
         log('engaged on', HOST, st ? '(step ' + st.cur + '/' + st.total + ')' : '');
         if (!earlyEngage) {            // late engage: heuristic said "this is a gate"
-            patchTimers();
-            patchClock();
-            patchRaf();
+            if (!API_GATED_HOSTS.test(HOST)) {
+                patchTimers();
+                patchClock();
+                patchRaf();
+            }
+            installTrustShield();      // catches handlers the gate adds from now on
             shieldVisibility();
             blockPopups();
             zeroCounters();
         }
+        neutralizeDialogs();
+        killAdblockNag();
         setBadge((st ? 'step ' + st.cur + '/' + st.total + ' — ' : '') +
             (SLOW_MODE ? 'honest mode (no time tricks) — ' : '') + 'waiting for the step button…');
 
         if (tryShortcut()) return;
+        tryApiFallback();
+
+        // The provider's FINAL step, recognised structurally even when the
+        // "you came back" detection itself failed (fresh page, cleared trail,
+        // redirect glitch, whatever): their countdown is validated server side
+        // and the link is minted server side, so this page must be sat out in
+        // REAL time — never accelerated, never force-clicked. Only reached
+        // after the embedded-destination shortcut (which legitimately ends
+        // chains early) had its chance.
+        if (hasServerTimedMarkers()) { stopAtProvider('server-timed final step'); return; }
 
         // Mark the chain so the next hop (rotating partner blog) engages too.
         try { sessionStorage.setItem('sas_chain', String(Date.now())); } catch (e) { /* ignore */ }
@@ -2083,6 +2798,25 @@
         start();
     }, 1000);
 
+    // SPA-style gates move to the next step with history.pushState — no reload,
+    // so none of the above re-runs. Tampermonkey/Violentmonkey can tell us about
+    // it when @grant window.onurlchange is present.
+    function onUrlChanged(nextUrl) {
+        try {
+            if (!nextUrl) return;
+            const clean = String(nextUrl).split('#')[0];
+            if (clean === HERE) return;
+            log('url changed in-place ->', clean);
+            HERE = clean;
+            if (started) {
+                tryShortcut();
+            } else if (CFG.enabled && !isChallengePage() && !isAdFrame()) {
+                start();
+            }
+        } catch (e) { /* ignore */ }
+    }
+    try { window.onurlchange = (e) => onUrlChanged(e && e.url); } catch (e) { /* grant absent */ }
+
     /* ─────────────────────── Tampermonkey menu ──────────────────────── */
 
     if (typeof GM_registerMenuCommand === 'function') {
@@ -2112,6 +2846,11 @@
         GM_registerMenuCommand('🏁 Last step: ' + (CFG.providerMode === 'finish' ? 'auto-finish' : 'let me tap it') +
             ' (click to switch)', () => {
             persist('providerMode', CFG.providerMode === 'finish' ? 'assist' : 'finish');
+            location.reload();
+        });
+        GM_registerMenuCommand('🔗 bypass.city resolver for linkvertise/lootlink/work.ink: ' +
+            (CFG.useApiFallback ? 'ON' : 'OFF') + ' (click to toggle)', () => {
+            persist('useApiFallback', !CFG.useApiFallback);
             location.reload();
         });
         GM_registerMenuCommand('🔴 Mark the real buttons now', () => {

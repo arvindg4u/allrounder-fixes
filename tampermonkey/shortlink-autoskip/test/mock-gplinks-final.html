@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>gplinks — Go to your link</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#0e1116;color:#c9d1d9;font:16px system-ui,sans-serif}
+ .wrap{max-width:720px;margin:0 auto;padding:24px;text-align:center}
+ .btn{background:#238636;color:#fff;font-weight:700;padding:12px 24px;border-radius:9px;border:0;cursor:pointer}
+ .btn[disabled]{background:#30363d;color:#6e7681;cursor:not-allowed}
+ nav a{color:#58a6ff;margin:0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a href="/login">Login</a><a href="/register">Register</a>
+    <a href="/dashboard">Dashboard</a><a href="/payout">Payout</a>
+  </nav>
+  <h1>Go to your link</h1>
+  <p>Please wait <span id="t">6</span> seconds…</p>
+  <!-- the classic AdLinkFly endgame: the go-link form's token is only honoured
+       by their server once ITS OWN countdown has fully elapsed -->
+  <form id="go-link" action="/links/go" method="post">
+    <input type="hidden" name="_csrf_token" value="f4c9v6aa11">
+    <input type="hidden" name="path" value="OtL2">
+    <button id="invisibleCaptchaShortlink" type="submit" class="btn btn-captcha disabled" disabled>Get Link</button>
+  </form>
+  <p id="err"></p>
+</div>
+<script>
+(function () {
+  /* a REAL 6s countdown: their server validates elapsed time (POST /links/go
+     answered 400 Bad Request if you rush it), the controls only unlock when
+     it finishes, and there is NO referrer / GM chain here — this is the
+     "detection failed, page must still be handled honestly" case */
+  var realNow = Date.now.bind(Date), born = realNow(), n = 6;
+  window.__badRequests = 0;
+  var iv = setInterval(function () {
+    n = Math.max(0, 6 - Math.floor((realNow() - born) / 1000));
+    document.getElementById('t').textContent = n;
+    if (realNow() - born >= 6000) {
+      clearInterval(iv);
+      window.__unlockedAt = realNow();
+      var b = document.getElementById('invisibleCaptchaShortlink');
+      b.classList.remove('disabled');
+      b.removeAttribute('disabled');
+    }
+  }, 200);
+  document.getElementById('invisibleCaptchaShortlink').addEventListener('click', function (e) {
+    e.preventDefault();                       // their JS would POST /links/go
+    if (realNow() - born < 6000) {
+      window.__badRequests++;
+      document.getElementById('err').textContent = '400 Bad Request — invalid token';
+      return;
+    }
+    window.__gotLink = true;
+    window.__gotLinkAt = realNow();
+    location.href = 'https://www.mediafire.com/file/gp1nks/file';
+  });
+})();
+</script>
+</body>
+</html>

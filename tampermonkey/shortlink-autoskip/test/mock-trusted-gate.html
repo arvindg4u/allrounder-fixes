@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Download File</title>
+</head>
+
+<body>
+    <!-- pahe.ink / Soralink-style gate: the click handler is only registered
+         once the timer arms, and it checks event.isTrusted — a synthetic
+         el.click() is silently ignored without the trust shield. -->
+    <h1>Your download is ready</h1>
+    <p>Please wait <span id="t">15</span> seconds, then click Continue.</p>
+    <div id="msg"></div>
+    <button id="next" disabled>Continue</button>
+    <script>
+        window.blurred = true;   // linksfly-style "you left the page" flag
+        var s = 15;
+        (function tick() {
+            s--;
+            document.getElementById('t').textContent = s;
+            if (s > 0) {
+                setTimeout(tick, 1000);   // re-scheduled every tick, like real gates
+                return;
+            }
+            var b = document.getElementById('next');
+            b.disabled = false;
+            // the listener is armed HERE, after the countdown — exactly
+            // what the Soralink kit does
+            b.addEventListener('click', function (e) {
+                if (!e.isTrusted) {
+                    document.getElementById('msg').textContent = 'BLOCKED: untrusted click';
+                    return;
+                }
+                document.getElementById('msg').textContent = 'trusted click accepted';
+                location.href = 'final.html';
+            });
+        })();
+    </script>
+</body>
+
+</html>
