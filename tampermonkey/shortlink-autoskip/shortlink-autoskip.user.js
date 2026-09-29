@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Shortlink Auto-Skip (timers + auto-continue)
 // @namespace    https://github.com/arvindg4u/allrounder-fixes
-// @version      1.19.0
+// @version      1.20.0
 // @description  Automates "wait 15 seconds / wait 10 seconds / click Continue" pages on earn-per-click short URL sites: speeds up countdowns, enables + clicks the Continue/Verify/Next/Get-Link button for every step and lands you on the final destination URL. Handles blog-style gates (vplink & friends) too.
 // @author       arvindg4u
 // @license      MIT
@@ -648,7 +648,9 @@
 
         // "Bad request" here almost always means we outran their backend: the
         // real URL is still being generated. Stop bending time on this host and
-        // simply try again after a few REAL seconds.
+        // try again — and on a server-timed final step, where the URL is minted
+        // by their server only after the full countdown, back off by the FULL
+        // remaining wait, not a token few seconds.
         SLOW_MODE = true;
         CFG.warpClock = false;
         CFG.speedUpTimers = false;
@@ -666,13 +668,20 @@
             stop();
             return;
         }
-        const waitMs = 3000 * serverErrors;      // 3s, 6s, 9s — real seconds
+        const providerFinish = providerFinishActive || isServerTimedFinalStep();
+        const waitMs = providerFinish
+            ? Math.max(3000 * serverErrors, requiredWaitMs() || 10000)   // their clock is the real kind
+            : 3000 * serverErrors;                                        // 3s, 6s, 9s — real seconds
+        if (providerFinish) providerArmAt = Math.max(providerArmAt, REAL_NOW() + waitMs);
         setBadge('server said "' + (m && m[0] ? m[0] : 'error') + '" — waiting ' +
             (waitMs / 1000) + 's and trying again');
         NATIVE.setTimeout(() => {
             serverErrorHandled = false;
             clickLog = new WeakMap();            // let the same button be pressed again
             coldElements = new WeakSet();
+            // finishAtProvider has its own interval driving this page — don't
+            // let a generic step() race it and press the button early again.
+            if (providerFinishActive) return;
             step(false);
         }, waitMs);
     }
@@ -1621,14 +1630,14 @@
         return found;
     }
 
-    function clickOnce(el, why) {
+    function clickOnce(el, why, noUnlock) {
         if (!el || !mayClick(el)) return false;
         if (clickCount >= CFG.maxClicksPerPage) { setBadge('click limit reached'); stop(); return false; }
         const rec = clickLog.get(el) || { n: 0 };
         clickLog.set(el, { sig: signature(el), at: Date.now(), n: rec.n + 1, fp: pageFingerprint() });
         clickCount++;
         watchEffect(el, rec.n + 1);
-        unlock(el);
+        if (!noUnlock) unlock(el);
         realClick(el);
         // a button we already know is inert very likely has an isTrusted-guarded
         // jQuery handler registered before our shield went up — call it directly
@@ -2215,7 +2224,7 @@
     // has walked through. Same-host multi-step gates (vplink 1 -> vplink 2,
     // gplinks, earnlinks) must NOT look like a return — that mistake is what
     // disabled timer-skipping on perfectly normal gate pages.
-    const CHAIN_TTL = 5 * 60 * 1000;   // a quiet chain is a finished chain
+    const CHAIN_TTL = 15 * 60 * 1000;  // a quiet chain is a finished chain
     function noteHostSequence() {
         const chain = chainGet();
         const age = chain.at ? Date.now() - chain.at : Infinity;
@@ -2318,14 +2327,31 @@
         return generic || null;
     }
 
+    // Honest finishing of the provider's final page: their countdown is checked
+    // server side and the URL is generated server side, so we (1) never skip
+    // their timer, (2) sit out the page's stated wait in REAL seconds before
+    // the first press, (3) only ever press a control the PAGE itself has
+    // enabled — no force-unlocking — and (4) if their server still says no, we
+    // back off by the full remaining wait, not a token 3s.
+    let providerFinishActive = false;
+    let providerArmAt = 0;          // REAL time before which pressing is pointless
+
     function finishAtProvider() {
         restoreNative();                       // their countdown ticks at real speed
         CFG.speedFactor = 1;
         CFG.speedUpTimers = false;
         CFG.warpClock = false;
+        providerFinishActive = true;
         markChainState('done');
         chainClear();                          // a finished chain must not poison the next one
-        log('provider final step on ' + HOST + ' — honest timing, auto-finish');
+        // the page's own "wait N seconds" — honoured in REAL time (the classic
+        // gplinks bypasses sleep ~10s before POSTing /links/go for exactly this
+        // reason), with a small floor for pages whose button is born enabled
+        const statedMs = requiredWaitMs();
+        const firstPressAfter = Math.max(statedMs, 3500);
+        providerArmAt = Math.max(providerArmAt, ENGAGED_AT + firstPressAfter);
+        log('provider final step on ' + HOST + ' — honest timing, auto-finish' +
+            (statedMs ? ' (their ' + (statedMs / 1000) + 's wait is real)' : ''));
         setBadge('last step at ' + HOST + ' — waiting out their real timer…');
 
         let ticks = 0;
@@ -2333,46 +2359,66 @@
         const iv = NATIVE.setInterval(() => {
             ticks++;
             if (!CFG.enabled) { NATIVE.clearInterval(iv); return; }
+            if (CFG.actionMode === 'assist') return;   // a human has taken over
             if (ticks > 200) {                 // ~2.5 minutes: give it to the user
                 NATIVE.clearInterval(iv);
                 enterAssist('their timer is unusually long — press it when ready');
                 return;
             }
-            if (serverErrorHandled) return;    // a retry is already scheduled
+            checkServerError();                // a 400 schedules an honest retry below
+            if (serverErrorHandled) return;
+            if (REAL_NOW() < providerArmAt) {
+                setBadge('their timer is the real kind — waiting ' +
+                    Math.ceil((providerArmAt - REAL_NOW()) / 1000) + 's before pressing');
+                return;
+            }
             if (networkBusy()) { setBadge('waiting for their server…'); return; }
             if (hasLiveCountdown()) { setBadge('their countdown is running — waiting (no skipping)'); return; }
 
             const el = providerFinalControl();
             if (!el) return;
+            // A form is only a proxy for its own submit button — press THAT so
+            // the page's own JS does the talking (their AJAX POST with the
+            // x-requested-with header, which a native submit() would skip).
+            let ctrl = el;
+            if (el.tagName === 'FORM') {
+                ctrl = el.querySelector('button[type="submit"], input[type="submit"], ' +
+                    'button:not([type="button"])') || el;
+            }
+            if (isDisabled(ctrl)) {         // the PAGE arms the control, not us
+                setBadge('waiting for their button to unlock by itself…');
+                return;
+            }
 
-            const href = el.tagName === 'A' ? el.getAttribute('href') : '';
-            if (href && /^https?:/i.test(href) && !isJunkLink(el)) {
+            const href = ctrl.tagName === 'A' ? ctrl.getAttribute('href') : '';
+            if (href && /^https?:/i.test(href) && !isJunkLink(ctrl)) {
                 NATIVE.clearInterval(iv);
                 setBadge('unlocked — opening your link');
                 log('provider: following unlocked link', href);
                 location.assign(href);
                 return;
             }
-            if (el.tagName === 'FORM') {
+            if (ctrl === el && el.tagName === 'FORM') {
                 if (clicked++) return;
                 setBadge('unlocked — submitting the final form');
                 log('provider: submitting', el.id || 'form');
                 try { el.submit(); } catch (e) { /* ignore */ }
                 return;
             }
-            if (!mayClick(el)) return;
-            setBadge('unlocked — pressing "' + (textOf(el) || 'Get Link').slice(0, 22) + '"');
-            clickOnce(el, 'provider final');
+            if (!mayClick(ctrl)) return;
+            setBadge('unlocked — pressing "' + (textOf(ctrl) || 'Get Link').slice(0, 22) + '"');
+            clickOnce(ctrl, 'provider final', true);   // true = never force-unlock: the page decides
         }, 700);
     }
 
-    function stopAtProvider() {
+    function stopAtProvider(reason) {
         restoreNative();          // never skip their timer on this page
         try {
             sessionStorage.removeItem('sas_chain');
             sessionStorage.removeItem('sas_trail');
         } catch (e) { /* ignore */ }
         chainClear();             // the chain is over — don't poison the next one
+        log('back at the shortener provider (' + HOST + ')' + (reason ? ' — ' + reason : ''));
 
         if (CFG.providerMode === 'finish' && CFG.actionMode !== 'assist') {
             finishAtProvider();   // automatic: wait honestly, then click for you
@@ -2428,6 +2474,28 @@
     // inside it would be clicking the ad itself.
     function isAdFrame() {
         return IN_FRAME && AD_HOSTS.test(HOST + '.');
+    }
+
+    // The AdLinkFly-family FINAL step: the page carries the go-link form (or its
+    // captcha-submit button / unlocked get-link anchor), the countdown is
+    // validated SERVER side and the destination URL is minted by THEIR server
+    // (POST /links/go — the classic gplinks bypasses literally sleep(10) before
+    // posting, and Bypass-All-Shortlinks only navigates when the answer's
+    // status is not "error"). Pressing the button early = 400 Bad Request, so
+    // on these pages we never bend time, never force-unlock anything and wait
+    // out the page's own countdown in REAL seconds — even when we failed to
+    // recognise this as "back at the provider".
+    function hasServerTimedMarkers() {
+        try {
+            return !!document.querySelector(
+                'form#go-link, form#form-go, form#setc, form[action*="/links/go"], ' +
+                '#invisibleCaptchaShortlink, .btn-captcha, a.get-link[href], a#getlink[href]');
+        } catch (e) { return false; }
+    }
+
+    function isServerTimedFinalStep() {
+        if (API_GATED_HOSTS.test(HOST)) return true;
+        return hasServerTimedMarkers();
     }
 
     function isKnownHost() {
@@ -2570,11 +2638,16 @@
     // went quiet is a NEW chain — drop any leftover host trail / "done" marker,
     // or the very next link would be misread as "back at the provider" and lose
     // all its timer skipping. (The #1 "it stopped working" report.)
+    // The quiet window is deliberately LONG (8 min): a slow-but-active chain
+    // (a captcha to solve, a server race to retry, an honest step to sit out)
+    // must never have its trail wiped — that is exactly what made the script
+    // stop recognising the return to the provider and hammer "Get Link" into a
+    // 400 Bad Request.
     (function freshChainReset() {
         try {
             if (!looksLikeShortCodeUrl() || isGateBlogHost() || IN_FRAME) return;
             const chain = chainGet();
-            const stale = !chain.at || (Date.now() - chain.at > 180000);   // 3 min quiet
+            const stale = !chain.at || (Date.now() - chain.at > 8 * 60 * 1000);   // 8 min quiet
             const doneRaw = sessionStorage.getItem('sas_done');
             if (stale || !Array.isArray(chain.hosts) || !chain.hosts.length) {
                 chainSet({ origin: HOST, at: Date.now(), hosts: [HOST] });
@@ -2668,6 +2741,15 @@
 
         if (tryShortcut()) return;
         tryApiFallback();
+
+        // The provider's FINAL step, recognised structurally even when the
+        // "you came back" detection itself failed (fresh page, cleared trail,
+        // redirect glitch, whatever): their countdown is validated server side
+        // and the link is minted server side, so this page must be sat out in
+        // REAL time — never accelerated, never force-clicked. Only reached
+        // after the embedded-destination shortcut (which legitimately ends
+        // chains early) had its chance.
+        if (hasServerTimedMarkers()) { stopAtProvider('server-timed final step'); return; }
 
         // Mark the chain so the next hop (rotating partner blog) engages too.
         try { sessionStorage.setItem('sas_chain', String(Date.now())); } catch (e) { /* ignore */ }

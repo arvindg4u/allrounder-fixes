@@ -29,6 +29,7 @@ const FINAL_HTML = strip('mock-final-link.html');
 const WPSAFE_HTML = strip('mock-wpsafelink.html');
 const LEET_HTML = strip('mock-leet-gate.html');
 const SHORTHOME_HTML = strip('mock-shortener-home.html');
+const GPLINKS_HTML = strip('mock-gplinks-final.html');
 const WPHOP_HTML = strip('mock-wp-first-hop.html');
 const TRUSTED_HTML = strip('mock-trusted-gate.html');
 const RAF_HTML = strip('mock-raf-gate.html');
@@ -499,14 +500,71 @@ const providerTimerUntouchedTest = () => providerFinishTest(
         });
     });
 
-// …but a FRESH visit to that same shortener must still be automated.
+// REGRESSION (v1.20, the reported bug): a chain that is SLOW but very much
+// alive — 5 minutes old, e.g. a captcha was solved on the way — must still be
+// recognised as "back at the provider". v1.19's 3-minute staleness wipe threw
+// the trail away, re-engaged with full timer skipping and hammered "Get Link"
+// into a 400 Bad Request.
+const slowChainStillStopsTest = () => providerFinishTest(
+    'slow-but-active chain (5 min old) still stops honestly at the provider',
+    'https://gplinks.com/finalstep1',
+    (w) => {
+        w.__gm['sas_chain_state'] = JSON.stringify({
+            origin: 'gplinks.com', at: Date.now() - 5 * 60 * 1000,
+            hosts: ['gplinks.com', 'someblog.example', 'gplinks.com'],
+        });
+    },
+    'https://someblog.example/step2/',
+);
+
+// REGRESSION (v1.20, the reported bug): the provider's final page where the
+// countdown is validated SERVER side and the URL is minted by THEIR server
+// (the gplinks /links/go shape) — and every "you came back" signal is missing:
+// no GM chain, no referrer, fresh tab. The page must STILL be handled honestly:
+// no timer skipping, no force-unlocking, no "Get Link" before their own
+// 6 seconds have really passed (that earns a 400 Bad Request).
+function serverTimedFinalTest() {
+    return new Promise(resolve => {
+        const dom = makeDom(GPLINKS_HTML, 'https://gplinks.com/full?api=1&url=OtL2');   // no chain, no referrer
+        const w = dom.window;
+        const nativeSetTimeout = w.setTimeout;
+        const nativeDateNow = w.Date.now;
+        let navigated = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
+        setTimeout(() => inject(dom), 50);
+        setTimeout(() => {
+            const timerPatched = w.setTimeout !== nativeSetTimeout || !!w.setTimeout.__sasPatched;
+            const clockWarped = w.Date.now !== nativeDateNow;
+            const finished = !!w.__gotLink || navigated;
+            const bad = w.__badRequests || 0;
+            const pressedTooEarly = !!(w.__gotLinkAt && w.__unlockedAt && w.__gotLinkAt < w.__unlockedAt);
+            const ok = finished && bad === 0 && !pressedTooEarly && !timerPatched && !clockWarped;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  server-timed final step with NO chain: honest wait, no 400 ` +
+                `(finished: ${finished}, hit 400: ${bad}, pressed before unlock: ${pressedTooEarly}, ` +
+                `timer patched: ${timerPatched}, clock warped: ${clockWarped})`);
+            w.close();
+            resolve(ok);
+        }, 9500);
+    });
+}
+
+// …but a FRESH visit to that same shortener must still be automated. Pages
+// carrying the provider's final-step markers (a.get-link, go-link form) are
+// now handled the honest way even on a fresh visit — real seconds, no
+// force-unlock — but they must still finish BY THEMSELVES, never sit idle.
 function freshShortenerStillWorksTest() {
     return new Promise(resolve => {
         const dom = makeDom(SHORTHOME_HTML, 'https://vplink.in/MEIN_ID_SAFE_PANEL');   // no referrer
         const w = dom.window;
+        let navigated = false;
+        dom.virtualConsole.on('jsdomError', e => {
+            if (/Not implemented: navigation/.test(e.message)) navigated = true;
+        });
         setTimeout(() => inject(dom), 50);
         setTimeout(() => {
-            const acted = !!w.__clickedGet || !!w.__clickedCont;
+            const acted = !!w.__clickedGet || !!w.__clickedCont || navigated;
             console.log(`${acted ? 'PASS' : 'FAIL'}  a fresh visit to the shortener is still automated (clicked: ${acted})`);
             w.close();
             resolve(acted);
@@ -778,6 +836,8 @@ function hashShortcutTest() {
     results.push(await stopAtShortenerNoReferrerTest());
     results.push(await unknownProviderStopTest());
     results.push(await providerTimerUntouchedTest());
+    results.push(await slowChainStillStopsTest());
+    results.push(await serverTimedFinalTest());
     results.push(await providerAssistModeTest());
     results.push(await freshShortenerStillWorksTest());
     results.push(await assistModeTest());

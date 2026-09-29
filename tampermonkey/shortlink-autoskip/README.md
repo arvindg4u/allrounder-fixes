@@ -1,5 +1,7 @@
 # Shortlink Auto-Skip — Tampermonkey userscript
 
+**v1.20.0** — fixes the reported "it clicked Get Link instantly and got **400 Bad Request**" on the shortener's own final page: that countdown is validated **server side** and the URL is minted by **their** server, so the script now **stops and waits it out in real seconds** — no timer skipping, no force-unlocking the button, no early press — and this now holds even when the script fails to recognise the page as "back at the provider" (the go-link form / Get Link markers are enough on their own). Full details in [the v1.20 section](#-v120--their-timer-their-server-our-patience).
+
 **v1.19.0** — modernises the script against what the current generation of gates does and what the popular bypass scripts (Bypass All Shortlinks v96.x, FastForward, uBlock's shortener filters) now ship: a **trust shield** for `event.isTrusted` checks, Cloudflare-challenge hands-off, chain-state cleanup so a *new* link after a finished chain still gets its timers skipped, realistic clicks (coordinates + pointer/touch warm-up), meta-refresh acceleration, ROT13/reversed/double base64 destination decoders, math-captcha solving, captcha-aware continuation, ad-frame immunity, dialog-trap removal, adblock-nag removal, `window.onurlchange` (SPA gates), and an **opt-in** bypass.city resolver for server-validated providers (linkvertise / work.ink / lootlink). Full details in [the v1.19 section](#-v119--researched-against-the-current-best-scripts).
 
 **v1.18.0** — fixes the regression that broke normal gates: "back at the provider" now requires **actually leaving the host and returning**, so multi-step shorteners keep skipping timers and clicking as before.
@@ -747,6 +749,62 @@ works (the Debloated fork ships the same conclusion). v1.19:
 Tuning knobs live in the `DEFAULTS` object at the top of the file
 (`speedFactor`, `clickIntervalMs`, `maxClicksPerPage`, `hardFallbackMs`, `giveUpMs`, …).
 
+## 🛑 v1.20 — their timer, their server, our patience
+
+**The report:** after skipping through the chain and coming back to the short URL provider's final
+page, the script did *not* stop — it pressed **Get Link** the instant the page appeared and the
+answer was **400 Bad Request**.
+
+**Why that happened (three stacked causes):**
+
+1. **The chain trail was wiped while the chain was still alive.** v1.19 treated a chain as "stale"
+   after 3 quiet minutes (and the chain TTL was 5 minutes). A chain that pauses for a captcha, a
+   slow server race or an honest wait easily crosses that line — the trail is dropped, so the
+   return to the provider is no longer recognised as a return, and the page is engaged like any
+   other gate: timers skipped 60×, button pressed the moment it exists → 400.
+2. **"Wait for their countdown" only fired on a *visible* ticking number.** Some provider finals
+   time you server-side with no live counter in the DOM (or with the number only in the copy, like
+   *"Please wait 6 seconds"*). With nothing ticking, v1.19 pressed the control as soon as it
+   existed — and `unlock()` stripped the button's `disabled` state first, so even the page's own
+   arming was bypassed.
+3. **The provider-final loop never watched for server errors.** The polite-retry machinery
+   (`checkServerError`) only ran in the generic scanner, so a 400 on the provider page was never
+   even noticed, let alone retried.
+
+**What the research says** (and v1.20 now matches): the canonical gplinks bypasses literally
+`time.sleep(10)` before POSTing `/links/go` — the server measures real elapsed time and answers
+400 until its own countdown has fully elapsed. Bypass-All-Shortlinks does the same dance
+(`customTimeout` on `#invisibleCaptchaShortlink`, a hard-coded list of buttons that need ~7 real
+seconds, and navigation only when the JSON answer's status is not `"error"`). Nobody tricks these
+timers; everybody waits them out.
+
+**The fix, layer by layer:**
+
+- **Slow chains are alive chains.** The staleness wipe went 3 min → **8 min**, the chain TTL
+  5 min → **15 min**. Properly finished chains are cleared explicitly anyway, so only genuinely
+  abandoned ones ever expire.
+- **Server-timed final steps are detected structurally**, not just by chain bookkeeping: a
+  `form#go-link` / `form[action*="/links/go"]`, `#invisibleCaptchaShortlink`, `.btn-captcha` or an
+  unlocked `a.get-link` marks the page as *theirs to time* — even with no GM chain, no referrer
+  and a fresh tab. (The embedded-destination shortcut still runs first, so wpsafelink-style pages
+  that hand us the URL outright keep working.)
+- **The honest wait is measured in real seconds.** On those pages the script sits out
+  `max(their stated seconds, 3.5s)` of wall-clock time before the first press — measured with the
+  pre-injection clock, immune to any time-bending — and only ever presses a control **the page
+  itself has enabled** (`clickOnce` in no-unlock mode: no stripping `disabled`, no class surgery).
+  A returned `form#go-link` is pressed through its own submit button, so the page's own AJAX
+  (with the `x-requested-with` header) does the talking.
+- **A 400 is retried with the full remaining wait**, not a token 3 s: `max(3s × attempts, their
+  stated seconds or 10s)`, after which the same honest rules apply again. The finish loop now
+  watches for server errors itself, and never races the generic scanner.
+
+Two regression tests pin this down: a 5-minute-old chain that v1.19 would have wiped (old code:
+reset → engage → 400; new code: honest finish), and a gplinks-shaped final page with **no chain
+and no referrer at all** where anything but a real 6-second wait earns a 400 (new mock
+`test/mock-gplinks-final.html`). Meanwhile the fast path is untouched: same-host multi-step
+gates, blog gates and the plain "Get Link" page without provider markers still skip timers as
+before.
+
 ## Built-in site list
 
 Recognised out of the box (no heuristic needed): gplinks, shrinkme, shrinkearn, adfoc.us, adf.ly,
@@ -794,6 +852,8 @@ node test/run-tests.js
 # PASS  provider return works with NO referrer at all
 # PASS  UNKNOWN provider (arolinks-style) is finished honestly too
 # PASS  provider return: countdown left at normal speed
+# PASS  slow-but-active chain (5 min old) still stops honestly at the provider
+# PASS  server-timed final step with NO chain: honest wait, no 400
 # PASS  providerMode='assist' marks it red instead of clicking
 # PASS  a fresh visit to the shortener is still automated
 # PASS  assist mode marks a button red and clicks nothing
