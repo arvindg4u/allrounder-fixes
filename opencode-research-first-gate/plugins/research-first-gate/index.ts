@@ -3,22 +3,29 @@
  *
  * Enforces the global WEB-RESEARCH-FIRST rule: an agent may not make a mutating
  * change (write / edit / patch / mutating shell / subagent / mutating MCP tool)
- * in a session until that session has consulted an external source
+ * until the turn being worked on has consulted an external source
  * (web search / web fetch / official-docs lookup) at least once.
+ *
+ * The gate re-arms on every user turn. `session.hook("prompt")` fires once per
+ * admitted user prompt, so each new request invalidates the previous turn's
+ * research and the agent must look the current task up again before changing
+ * anything. Research from an earlier turn does not count.
  *
  * Mechanism: `tool.hook("execute.before")` is the only hook whose failure channel
  * rejects the tool call before it runs. Throwing from it produces a Tool.Error that
  * the model sees, so the agent is told exactly what to do instead of the task dying.
  *
  * Read-only tools are never blocked, so the agent can always do the research first.
- * The gate is per-session, satisfied by an ancestor (subagent) session's research,
- * and fails open after `maxBlocks` refusals so a task can never deadlock.
+ * A subagent session is satisfied by an ancestor session's research for the same
+ * turn, and the gate fails open after `maxBlocks` refusals per turn so a task can
+ * never deadlock.
  *
  * Every decision is appended to an audit log (JSON Lines) so a block is never silent.
  *
  * Options (set in opencode.json under plugins[].options):
  *   enabled            boolean, default true
- *   maxBlocks          number,  default 4    — refusals per session before failing open
+ *   scope              "turn" (default) | "session" — how often the gate re-arms
+ *   maxBlocks          number,  default 4    — refusals per turn before failing open
  *   injectSystemPrompt boolean, default true — keep the rule in every model request
  *   audit              boolean, default true — append decisions to the audit log
  *   logPath            string,  default ~/.local/share/opencode/log/research-first-gate.log
@@ -30,7 +37,13 @@ import { appendFileSync, mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { Plugin } from "@opencode/plugin"
-import { isMutatingTool, isResearchTool, refusalMessage, SYSTEM_REMINDER } from "./classify.ts"
+import {
+  hasCompletedResearch,
+  isMutatingTool,
+  isResearchTool,
+  refusalMessage,
+  SYSTEM_REMINDER,
+} from "./classify.ts"
 
 const DEFAULT_LOG_PATH = join(homedir(), ".local", "share", "opencode", "log", "research-first-gate.log")
 
@@ -42,6 +55,8 @@ export default Plugin.define({
     const enabled = options.enabled !== false
     const injectSystemPrompt = options.injectSystemPrompt !== false
     const auditEnabled = options.audit !== false
+    const scope = options.scope === "session" ? "session" : "turn"
+    const perTurn = scope === "turn"
     const maxBlocks = Number.isFinite(options.maxBlocks) ? Number(options.maxBlocks) : 4
     const logPath = typeof options.logPath === "string" && options.logPath.length > 0 ? options.logPath : DEFAULT_LOG_PATH
     const extraResearchTools = Array.isArray(options.extraResearchTools) ? options.extraResearchTools : []
@@ -54,7 +69,7 @@ export default Plugin.define({
         mkdirSync(dirname(logPath), { recursive: true })
         appendFileSync(
           logPath,
-          `${JSON.stringify({ time: new Date().toISOString(), event, sink: ctx.location?.directory, ...detail })}\n`,
+          `${JSON.stringify({ time: new Date().toISOString(), event, scope, sink: ctx.location?.directory, ...detail })}\n`,
         )
       } catch {
         // A failed write is not a reason to let the change through.
@@ -66,9 +81,9 @@ export default Plugin.define({
       return
     }
 
-    /** sessionID -> true once an external lookup has succeeded in that session. */
+    /** sessionID -> true when the current turn/scope has satisfied the gate. */
     const researched = new Map()
-    /** sessionID -> how many mutations this gate has refused. */
+    /** sessionID -> how many mutations this gate has refused in the current turn. */
     const refusals = new Map()
 
     const safe = async (run) => {
@@ -79,25 +94,10 @@ export default Plugin.define({
       }
     }
 
-    /** Look for a completed research call already in this session's transcript. */
-    const seedFromHistory = async (sessionID) => {
-      const messages = await safe(() => ctx.session.context({ sessionID }))
-      if (!Array.isArray(messages)) return false
-      for (const message of messages) {
-        const content = message?.content
-        if (!Array.isArray(content)) continue
-        for (const part of content) {
-          if (part?.type !== "tool") continue
-          if (part?.state?.status !== "completed") continue
-          if (isResearchTool(part.name, extraResearchTools)) return true
-        }
-      }
-      return false
-    }
-
     /**
-     * A session is satisfied by its own research, or by an ancestor session's, so a
-     * subagent inherits the parent task's sources instead of deadlocking on spawn.
+     * A session is satisfied by the current turn's research in its own transcript,
+     * or by an ancestor session's, so a subagent inherits the parent turn's sources
+     * instead of deadlocking on spawn.
      */
     const satisfied = async (sessionID) => {
       if (researched.get(sessionID) === true) return true
@@ -114,9 +114,10 @@ export default Plugin.define({
         current = parent
       }
 
-      if (await seedFromHistory(sessionID)) {
+      const messages = await safe(() => ctx.session.context({ sessionID }))
+      if (hasCompletedResearch(messages, extraResearchTools, !perTurn)) {
         researched.set(sessionID, true)
-        audit("unlocked-from-transcript", { sessionID })
+        audit("unlocked-from-transcript", { sessionID, window: scope })
         return true
       }
       return false
@@ -130,6 +131,15 @@ export default Plugin.define({
       refusals.delete(event.sessionID)
       audit("research-satisfied", { sessionID: event.sessionID, tool: event.tool })
     })
+
+    // ---- re-arm on every user turn -------------------------------------
+    if (perTurn) {
+      await ctx.session.hook("prompt", (event) => {
+        researched.delete(event.sessionID)
+        refusals.delete(event.sessionID)
+        audit("turn-armed", { sessionID: event.sessionID, messageID: event.messageID })
+      })
+    }
 
     // ---- block mutations until researched ------------------------------
     await ctx.tool.hook("execute.before", async (event) => {
@@ -150,7 +160,7 @@ export default Plugin.define({
         attempt: used + 1,
         remaining: maxBlocks - used - 1,
       })
-      throw new Error(refusalMessage(event.tool, maxBlocks - used - 1))
+      throw new Error(refusalMessage(event.tool, maxBlocks - used - 1, scope))
     })
 
     // ---- keep the rule in front of the model on every request ----------

@@ -5,7 +5,14 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { isMutatingTool, isResearchTool, normalize, refusalMessage } from "./classify.ts"
+import {
+  currentTurnStart,
+  hasCompletedResearch,
+  isMutatingTool,
+  isResearchTool,
+  normalize,
+  refusalMessage,
+} from "./classify.ts"
 
 describe("normalize", () => {
   test("strips namespaces", () => {
@@ -165,5 +172,73 @@ describe("refusalMessage", () => {
 
   test("announces fail-open when no attempts remain", () => {
     expect(refusalMessage("write", 0)).toContain("failing open")
+  })
+
+  test("says the gate re-arms per turn by default", () => {
+    expect(refusalMessage("write", 3)).toContain("re-arms for every turn")
+    expect(refusalMessage("write", 3, "turn")).toContain("required in this turn")
+    expect(refusalMessage("write", 3, "session")).toContain("required in this session")
+  })
+})
+
+// --- turn scoping -----------------------------------------------------------
+
+const user = (text) => ({ type: "user", text: `msg_${text}` })
+const research = (name = "webfetch") => ({
+  type: "assistant",
+  content: [{ type: "tool", name, state: { status: "completed" } }],
+})
+const researchRunning = (name = "webfetch") => ({
+  type: "assistant",
+  content: [{ type: "tool", name, state: { status: "running" } }],
+})
+const write = () => ({
+  type: "assistant",
+  content: [{ type: "tool", name: "write", state: { status: "completed" } }],
+})
+
+describe("currentTurnStart", () => {
+  test("finds the last user message", () => {
+    expect(currentTurnStart([user("a"), research(), user("b"), write()])).toBe(2)
+  })
+
+  test("falls back to the whole transcript when no user message exists", () => {
+    expect(currentTurnStart([research(), write()])).toBe(0)
+    expect(currentTurnStart([])).toBe(0)
+    expect(currentTurnStart(undefined)).toBe(0)
+  })
+})
+
+describe("hasCompletedResearch — per turn (default)", () => {
+  test("counts research inside the current turn", () => {
+    expect(hasCompletedResearch([user("a"), research()])).toBe(true)
+  })
+
+  test("ignores research from an earlier turn", () => {
+    // Turn 1 researched, turn 2 has only a write: the gate must be armed again.
+    expect(hasCompletedResearch([user("a"), research(), user("b"), write()])).toBe(false)
+  })
+
+  test("counts research that happened after the newest user message", () => {
+    expect(hasCompletedResearch([user("a"), research(), user("b"), research(), write()])).toBe(true)
+  })
+
+  test("ignores research that has not completed", () => {
+    expect(hasCompletedResearch([user("a"), researchRunning()])).toBe(false)
+  })
+
+  test("only counts research tools", () => {
+    expect(hasCompletedResearch([user("a"), write()])).toBe(false)
+  })
+
+  test("handles an empty or missing transcript", () => {
+    expect(hasCompletedResearch([])).toBe(false)
+    expect(hasCompletedResearch(undefined)).toBe(false)
+  })
+})
+
+describe("hasCompletedResearch — whole session", () => {
+  test("counts research from any earlier turn", () => {
+    expect(hasCompletedResearch([user("a"), research(), user("b"), write()], [], true)).toBe(true)
   })
 })

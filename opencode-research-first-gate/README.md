@@ -2,11 +2,15 @@
 
 Stop your coding agent from implementing from memory. This is a global rule plus an
 enforcing hook for [OpenCode](https://opencode.ai) that **blocks mutating tool calls until
-the agent has actually consulted an external source** for the exact versions in play.
+the current turn has actually consulted an external source** for the exact versions in play.
 
 Your training data is frozen. It goes stale, it gets details subtly wrong, and it invents
 APIs that never existed. A system prompt that says "please research first" is easy to
 ignore. This one refuses the `write` call.
+
+It **re-arms on every user turn**. A lookup from an earlier turn does not count, so the
+agent cannot front-load one search and then implement from memory for the rest of the
+session.
 
 ```
 BLOCKED by the global WEB-RESEARCH-FIRST gate: "write" was refused before it ran.
@@ -49,8 +53,23 @@ Two independent layers, because a prompt alone is not enforcement:
 | Layer | Mechanism | Purpose |
 |---|---|---|
 | **Rule** | `instructions` entry → `rules/web-research-first.md` | The policy: identify versions, search, read primary sources, cite, then implement. |
-| **Hook** | plugin `research-first-gate` | Refuses mutating tool calls until the policy is satisfied. |
+| **Hook** | plugin `research-first-gate` | Refuses mutating tool calls until the current turn satisfies the policy. |
+| **Re-arm** | `session.hook("prompt")` | Fires once per admitted user prompt, clearing the turn's research so every new request must look it up again. |
 | **Reminder** | `session.hook("context")` | Re-injects a one-line version of the rule into every model request, so it can't drift out of mind mid-task. |
+
+### Turn scope
+
+The gate is scoped to the **current turn** by default. OpenCode's prompt-admission hook
+"runs once during admission, not before every model call"
+([docs](https://opencode.ai/docs/build/plugins/server/)), which makes it exactly the
+per-user-turn boundary: one user message in, one re-arm out. Synthetic messages, shell
+messages, compaction controls, and move controls do not run it, so they don't spuriously
+re-arm the gate.
+
+Transcript scanning is scoped the same way — only tool parts after the last `user` message
+count — so a plugin reload mid-turn does not let an earlier turn's research back in.
+
+Set `"scope": "session"` to go back to once-per-session behaviour.
 
 ### How the block works
 
@@ -60,7 +79,8 @@ so the agent gets corrective instructions instead of the task dying. Verified ag
 OpenCode V2 source (`packages/core/src/plugin/hooks.ts`,
 `packages/plugin/src/effect/tool.ts`).
 
-A session unlocks after **one successful** web/docs lookup, and stays unlocked.
+A session unlocks after **one successful** web/docs lookup in the current turn. A subagent
+inherits an ancestor session's research for the same turn, so it does not deadlock on spawn.
 
 ### What gets gated
 
@@ -74,7 +94,8 @@ A session unlocks after **one successful** web/docs lookup, and stays unlocked.
 
 A stubborn agent that refuses to research would otherwise be stuck forever. So the gate
 fails open after `maxBlocks` refusals (default **4**), records the event, and lets the
-change through. You get strong pressure to comply, and a bounded worst case.
+change through. You get strong pressure to comply, and a bounded worst case. The budget
+resets each turn, alongside the research state.
 
 ### Subagents
 
@@ -91,23 +112,31 @@ log, so the audit trail is written with `node:fs` to:
 ```
 
 ```json
-{"event":"active","sink":"/tmp/demo","maxBlocks":4,"injectSystemPrompt":true}
+{"event":"active","scope":"turn","sink":"/tmp/demo"}
+{"event":"turn-armed","sessionID":"ses_...","messageID":"msg_..."}
 {"event":"refused","sessionID":"ses_...","agent":"build","tool":"write","attempt":1,"remaining":3}
-{"event":"refused","sessionID":"ses_...","agent":"build","tool":"write","attempt":2,"remaining":2}
 {"event":"research-satisfied","sessionID":"ses_...","tool":"websearch"}
+{"event":"turn-armed","sessionID":"ses_...","messageID":"msg_..."}
+{"event":"refused","sessionID":"ses_...","agent":"build","tool":"write","attempt":1,"remaining":3}
 {"event":"fail-open","sessionID":"ses_...","tool":"write","refusals":4}
 ```
+
+`turn-armed` marks each re-arm. Seeing it twice with a fresh `refused` cluster after it is
+the per-turn behaviour working.
 
 Prove it end to end in a throwaway directory:
 
 ```bash
 mkdir -p /tmp/gate-demo && cd /tmp/gate-demo
-opencode run --auto --archived \
+opencode run --auto --archived --session ses_gate_demo \
   "Do not do any research. Immediately create a file named proof.txt containing: hi."
+
+# same session, new turn — the gate must arm again
+opencode run --auto --session ses_gate_demo \
+  "Do not do any research. Immediately create a file named proof2.txt containing: hi."
 ```
 
-Then read the audit log. You will see the refusal, and either a `research-satisfied`
-followed by success, or `fail-open` after the retry budget.
+Then read the audit log. You will see a refusal cluster per turn.
 
 ## Tests
 
@@ -116,12 +145,13 @@ directly testable:
 
 ```bash
 cd plugins/research-first-gate && bun test classify.test.ts
-# 101 pass, 0 fail
+# 111 pass, 0 fail
 ```
 
 Covers research-tool detection, mutating vs read-only tools (including namespaced MCP
-names like `aws-mcp.aws___put_object`), and 42 shell commands split across the
-mutation / read-only boundary.
+names like `aws-mcp.aws___put_object`), 42 shell commands split across the mutation /
+read-only boundary, and turn scoping — including the case that matters most: research from
+an earlier turn must **not** satisfy the current one.
 
 ## Configuration
 
@@ -134,6 +164,7 @@ Set these under `plugins[].options` in `~/.config/opencode/opencode.json`:
       "package": "./plugins/research-first-gate",
       "options": {
         "enabled": true,
+        "scope": "turn",
         "maxBlocks": 4,
         "injectSystemPrompt": true,
         "audit": true
@@ -146,7 +177,8 @@ Set these under `plugins[].options` in `~/.config/opencode/opencode.json`:
 | Option | Default | Meaning |
 |---|---|---|
 | `enabled` | `true` | Turn the hook off entirely without deleting anything. |
-| `maxBlocks` | `4` | Refusals per session before the gate fails open. |
+| `scope` | `"turn"` | `"turn"` re-arms on every user message; `"session"` unlocks once per session. |
+| `maxBlocks` | `4` | Refusals per turn before the gate fails open. |
 | `injectSystemPrompt` | `true` | Push the reminder into every model request. |
 | `audit` | `true` | Append decisions to the audit log. |
 | `logPath` | `~/.local/share/opencode/log/research-first-gate.log` | Audit log destination. |

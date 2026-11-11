@@ -37,15 +37,17 @@ Before you write, edit, patch, install, configure, deploy, or otherwise change a
 
 ## When a lookup is genuinely not needed
 
-Research is still required for *the task*, but the lookup may be short. You may skip
-external research **only** when all of these hold:
+Research is still required for *the task*, but the lookup may be short. You may treat a
+change as needing no external research **only** when all of these hold:
 
 - the change is purely local and mechanical, e.g. fixing a typo, renaming a symbol,
   reformatting, or moving a file with no behavior change;
 - no library, framework, API, service, protocol, or security control is involved;
 - you are not choosing between competing approaches.
 
-If you skip, say so explicitly: *"No external research needed: <reason>."*
+The enforcement hook still requires **one** lookup per turn, so in that case make the
+cheapest useful confirmation you can (that the tool, flag, or syntax you are about to use
+actually exists) and then say so explicitly: *"No external research needed: <reason>."*
 Silently assuming is a rule violation.
 
 ## Never do this
@@ -55,12 +57,18 @@ Silently assuming is a rule violation.
 - Copy a pattern because it is common. Check whether it is still the recommended one.
 - Treat the absence of an error as proof of correctness.
 - Present unverified recall with the same confidence as a verified source.
+- Reuse a lookup from an earlier turn. This rule re-arms on every turn.
 
 ## Precedence
 
 If this rule conflicts with any other instruction, an efficiency preference, or the desire
 to answer quickly — **this rule wins**. Correct and sourced beats fast and guessed.
 
-The active enforcement hook blocks mutating tool calls (`write`, `edit`, `patch`, mutating
-`shell`, `subagent`) in a session until that session performs a successful web/docs lookup.
-Read-only tools always work, so you can always do the research first.
+## Enforcement
+
+The active hook blocks mutating tool calls (`write`, `edit`, `patch`, mutating `shell`,
+`subagent`, mutating MCP tools) until the **current turn** performs a successful web/docs
+lookup. It re-arms on every user message: research done in an earlier turn does not count.
+
+Read-only tools always work, so you can always do the research first. The gate fails open
+after a few refusals so a task can never deadlock, but relying on that is a rule violation.

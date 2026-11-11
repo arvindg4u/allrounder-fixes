@@ -129,6 +129,41 @@ export const readShellCommand = (input) => {
   return undefined
 }
 
+/**
+ * Index of the first message belonging to the current turn: the last user
+ * message. Returns 0 when the transcript has no user message yet, which makes
+ * "the current turn" the whole transcript.
+ */
+export const currentTurnStart = (messages) => {
+  if (!Array.isArray(messages)) return 0
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index]?.type === "user") return index
+  }
+  return 0
+}
+
+/**
+ * Has an external lookup already completed for the turn being worked on?
+ *
+ * `wholeSession` widens the window to the entire transcript, for the
+ * once-per-session scope. The default is the current turn only, so every new
+ * user message re-arms the gate.
+ */
+export const hasCompletedResearch = (messages, extra = [], wholeSession = false) => {
+  if (!Array.isArray(messages)) return false
+  const start = wholeSession ? 0 : currentTurnStart(messages)
+  for (let index = start; index < messages.length; index++) {
+    const content = messages[index]?.content
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      if (part?.type !== "tool") continue
+      if (part?.state?.status !== "completed") continue
+      if (isResearchTool(part.name, extra)) return true
+    }
+  }
+  return false
+}
+
 export const isMutatingShellCommand = (command) => MUTATING_SHELL.test(String(command ?? ""))
 
 export const isMutatingTool = (name, input, extra = []) => {
@@ -151,8 +186,9 @@ export const isMutatingTool = (name, input, extra = []) => {
   return segmentsOf(name).some((segment) => MUTATION_VERBS.has(segment))
 }
 
-export const refusalMessage = (tool, remaining) => {
+export const refusalMessage = (tool, remaining, scope = "turn") => {
   const label = normalize(tool) || String(tool)
+  const unit = scope === "session" ? "this session" : "this turn"
   return [
     `BLOCKED by the global WEB-RESEARCH-FIRST gate: "${label}" was refused before it ran.`,
     "",
@@ -170,16 +206,18 @@ export const refusalMessage = (tool, remaining) => {
     "",
     remaining > 0
       ? "Read-only tools (read, glob, grep, webfetch, websearch, docs lookups) work normally. " +
-        `The gate unlocks for this session after one successful lookup. ${remaining} attempt(s) before the gate fails open.`
-      : "The gate is failing open for this session so the task cannot deadlock. The rule still applies.",
+        `The gate re-arms for every turn, so a lookup is required in ${unit} before the next change. ` +
+        `${remaining} attempt(s) before the gate fails open.`
+      : `The gate is failing open for ${unit} so the task cannot deadlock. The rule still applies.`,
   ].join("\n")
 }
 
 export const SYSTEM_REMINDER = [
-  "WEB-RESEARCH-FIRST (global rule, mechanically enforced).",
+  "WEB-RESEARCH-FIRST (global rule, mechanically enforced every turn).",
   "Your recall is not evidence. Before any mutating change, pin the exact versions",
   "in play, look up the current best practice in the official docs or upstream",
   "repository for that exact version, cite the URL, and only then implement.",
-  "This gate rejects write, edit, patch, mutating shell, subagent, and mutating MCP",
-  "calls until this session performs one successful web or docs lookup.",
+  "The gate re-arms on every user turn: it rejects write, edit, patch, mutating shell,",
+  "subagent, and mutating MCP calls until the current turn performs one successful",
+  "web or docs lookup. Research done in an earlier turn does not count.",
 ].join(" ")
