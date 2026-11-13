@@ -145,12 +145,12 @@ directly testable:
 
 ```bash
 cd plugins/research-first-gate && bun test classify.test.ts
-# 111 pass, 0 fail
+# 133 pass, 0 fail
 ```
 
 Covers research-tool detection, mutating vs read-only tools (including namespaced MCP
-names like `aws-mcp.aws___put_object`), 42 shell commands split across the mutation /
-read-only boundary, and turn scoping — including the case that matters most: research from
+names like `aws-mcp.aws___put_object`), shell parsing across the mutation / read-only /
+redirect boundary, and turn scoping — including the case that matters most: research from
 an earlier turn must **not** satisfy the current one.
 
 ## Configuration
@@ -191,6 +191,22 @@ The shell classifier is a curated allowlist, not a shell parser. A mutating comm
 written in an unanticipated form can slip past it. The `write` / `edit` / `patch` gate is
 the reliable part; treat the shell gate as best-effort. Add misses to
 `extraMutationTools` and send a patch if you want the pattern tightened.
+
+Redirect handling, since it is easy to get wrong in both directions:
+
+- **Allowed** — a redirect to a character-device sink discards output and is not a file
+  write: `2>/dev/null`, `&>/dev/null`, `> /dev/stdout`, `>/dev/fd/1`, `2>&1`.
+  (Verified against the [Bash manual](https://www.gnu.org/software/bash/manual/bash.html)
+  and the fact that `/dev/null` is a character special device, not a regular file.)
+- **Gated** — a redirect to a real target: `> out.txt`, `>> log.txt`,
+  `2>/dev/null > report.txt`, `>/dev/nullish/file.txt`.
+
+Two bugs worth remembering if you touch that pattern:
+
+1. A naive `>>?\s*\S` matches `2>/dev/null`, because `>` followed by `/` looks like a write.
+2. Even with a sink exclusion, `>>` can backtrack and split into `>` plus a target of `>`.
+   The `(?!>)` guard exists for exactly that case — remove it and `>>/dev/null` starts
+   reporting as a mutation again.
 
 ## Requirements
 

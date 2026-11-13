@@ -162,6 +162,44 @@ describe("isMutatingTool — shell commands", () => {
   })
 })
 
+describe("isMutatingTool — redirects", () => {
+  // Regression: redirecting to a character-device sink discards output and is not
+  // a file write. Treating `2>/dev/null` as a mutation blocked ordinary reads.
+  const allowed = [
+    "ls -la 2>/dev/null",
+    "grep -rn foo . 2>/dev/null",
+    "ls /nope 2> /dev/null",
+    "find / -name '*.log' 2>/dev/null",
+    "cmd >/dev/null 2>&1",
+    "cmd > /dev/null",
+    "cmd &>/dev/null",
+    "cmd >>/dev/null",
+    "cmd 2>/dev/null 2>&1",
+    "cmd >/dev/stdout",
+    "cmd 2>/dev/stderr",
+    "cmd >/dev/tty",
+    "cmd >/dev/fd/1",
+    "make build 2>/dev/null | tail -5",
+    "git status 2>/dev/null; echo done",
+  ]
+  for (const command of allowed) {
+    test(`allows redirect-to-sink: ${command}`, () => expect(isMutatingTool("shell", { command })).toBe(false))
+  }
+
+  const gated = [
+    "echo hi > out.txt",
+    "echo hi >out.txt",
+    "echo hi >> log.txt",
+    "cmd 2>/dev/null > report.txt",
+    "cmd > /tmp/scratch",
+    "cat a b > merged.txt",
+    "cmd >/dev/nullish/file.txt",
+  ]
+  for (const command of gated) {
+    test(`gates real file redirect: ${command}`, () => expect(isMutatingTool("shell", { command })).toBe(true))
+  }
+})
+
 describe("refusalMessage", () => {
   test("names the tool and the next step", () => {
     const message = refusalMessage("aws-mcp.aws___put_object", 3)

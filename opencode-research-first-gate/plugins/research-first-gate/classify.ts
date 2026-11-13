@@ -78,7 +78,10 @@ const MUTATING_SHELL = new RegExp(
     String.raw`(^|[\s;&|(])(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|chgrp|truncate|dd|tee|ln|mkfifo|mknod|patch)(\s|$)`,
     String.raw`\bsed\b[^|;&]*\s-i`,
     String.raw`\bperl\b[^|;&]*\s-i`,
-    String.raw`>>?\s*(?!&)\S`,
+    // A redirect whose target is a character-device sink (/dev/null, /dev/stdout,
+    // /dev/stderr, /dev/tty, /dev/fd/N) discards output; it is not a file write.
+    // Only a redirect to a real target counts as a mutation.
+    String.raw`>>?\s*(?!&)(?!>)(?!\/dev\/(?:null|zero|stdout|stderr|tty|fd\/\d+)(?![\w/]))\S`,
     String.raw`\b(npm|pnpm|yarn|bun)\s+(i|install|add|remove|rm|uninstall|upgrade|update|link|publish|init)\b`,
     String.raw`\b(pip|pip3)\s+(install|uninstall|upgrade)\b`,
     String.raw`\bpython3?\s+-m\s+pip\s+(install|uninstall|upgrade)\b`,
