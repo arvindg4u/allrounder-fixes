@@ -1,0 +1,95 @@
+{
+  "_comment": "meta.template.json — copy to /tmp/paper/meta.json and fill in. Minimal viable file: output, h1, total_questions, frontmatter, one section per part file. Everything else has sane defaults.",
+
+  "output": "/absolute/path/to/<PAPER_NAME>_Solutions_Hindi.md",
+  "parts_dir": "/tmp/paper/parts",
+  "h1": "# <Institute / Exam name> — <Paper code / date> — सम्पूर्ण हल",
+  "total_questions": 120,
+
+  "frontmatter": {
+    "title": "<Exam> — <paper code> — सम्पूर्ण हल",
+    "aliases": ["<short alias>", "<Hindi alias>"],
+    "tags": ["exam-name", "subject/gk", "subject/maths", "current-affairs/2026"],
+    "properties": {
+      "exam": "<Exam name>",
+      "institute": "<Institute / board>",
+      "paper_code": "<code / date>",
+      "language": "hi",
+      "source_pdf": "<file name>.pdf",
+      "status": "solved"
+    },
+    "cssclasses": ["exam-solutions"]
+  },
+
+  "toc": {
+    "title": "विषय-सूची (Table of Contents)",
+    "extra_first": "[[#उत्तर कुंजी (Answer Key)]] — सभी {total} उत्तर, एक नज़र में",
+    "extra_links": ["समापन टिप्पणी", "स्रोत (Sources)", "पुनरावृत्ति चेकलिस्ट (Revision Tracker)"]
+  },
+
+  "exam_details": {
+    "title": "परीक्षा विवरण",
+    "text": "<Institute> • पेपर कोड: <code> • कुल पृष्ठ: <n> • कुल प्रश्न: 120 • विकल्प (A)–(D) तथा (E) \"अनुत्तरित प्रश्न / Question not attempted\""
+  },
+
+  "about": {
+    "title": "इस हल-पुस्तिका के बारे में",
+    "text": "यह पेपर स्कैन किया हुआ PDF है, इसलिए हर प्रश्न को **पृष्ठ-दर-पृष्ठ छवि पढ़कर** ट्रांसक्राइब किया गया और प्रत्येक तथ्य **वेब-स्रोतों** से सत्यापित किया गया है। गणित एवं तर्क के प्रश्न **दो स्वतंत्र विधियों** से हल किए गए हैं और दोनों विधियाँ नीचे दी गई हैं।"
+  },
+
+  "diagram": [
+    "📘 <Exam> — <paper code><br/>कुल 120 प्रश्न",
+    "भाग 1 · प्रश्न 1–17<br/><topic>",
+    "भाग 2 · प्रश्न 18–33<br/><topic>"
+  ],
+
+  "key": {
+    "heading": "## उत्तर कुंजी (Answer Key)",
+    "columns": 5,
+    "link": "[[#प्रश्न {q}\\|**{a}**]]",
+    "tip_title": "उत्तर कुंजी का उपयोग कैसे करें",
+    "tip_text": "तालिका में किसी भी उत्तर पर क्लिक कीजिए — आप सीधे उस प्रश्न के विस्तृत हल पर पहुँच जाएँगे।",
+    "stats_note": "आँकड़े — कुल प्रश्न: **{total}** • उत्तर भरे गए: **{filled}** • शेष: **{missing}**"
+  },
+
+  "sections": [
+    {
+      "file": "part_01.md",
+      "tags": ["#subject", "#topic"],
+      "label": "भाग 1 · प्रश्न 1–17<br/>topic",
+      "skip": []
+    },
+    {
+      "file": "part_02.md",
+      "tags": ["#subject"],
+      "label": "भाग 2 · प्रश्न 18–33<br/>topic",
+      "skip": []
+    }
+  ],
+
+  "closing": [
+    "## समापन टिप्पणी",
+    "",
+    "- सभी प्रश्न पृष्ठ-दर-पृष्ठ पढ़कर हल किए गए और वेब-स्रोतों से सत्यापित किए गए।",
+    "- **कम-निश्चित प्रश्न:** <प्रश्न संख्या + कारण>"
+  ],
+
+  "sources": {
+    "heading": "## स्रोत (Sources)",
+    "title": "सत्यापन में प्रयुक्त प्रमुख स्रोत",
+    "items": [
+      { "label": "PIB — <release>", "url": "https://www.pib.gov.in/..." },
+      { "label": "Wikipedia — <topic>", "url": "https://..." }
+    ]
+  },
+
+  "checklist": {
+    "heading": "## पुनरावृत्ति चेकलिस्ट (Revision Tracker)",
+    "items": [
+      "भाग 1 — <topic> (प्रश्न 1–17)",
+      "भाग 2 — <topic> (प्रश्न 18–33)"
+    ]
+  },
+
+  "build_note": "%% यह नोट स्वचालित रूप से बनाया गया है: स्कैन किए हुए पेपर से पृष्ठ-दर-पृष्ठ ट्रांसक्रिप्शन + वेब-सत्यापन। %%"
+}
