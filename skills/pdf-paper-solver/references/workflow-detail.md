@@ -1,117 +1,102 @@
-# Workflow detail — reading, splitting, subagent prompts
+# Workflow detail — one page at a time, bank first, then solve
 
-## A. Page-reading protocol (protects the context window)
+## A. Why one page per tool call (not "optimisation", it is the only safe way)
 
-A dense exam page costs ~2k tokens as an image. Reading 12 pages in one call blows past
-the safe window and triggers auto-compaction, which silently drops transcriptions.
+A 150-dpi scan page costs roughly 700–1,500 image tokens and is billed by pixels, not by how much
+text is on it. Reading ten pages in one call therefore costs the same as ten separate calls **and**
+adds two failure modes:
 
-Rules:
-1. Read **1–2 images per tool call**, not more.
-2. After each call, immediately append the verbatim questions + answers to `notes.md`.
-   Losing the image is fine; losing `notes.md` is not.
-3. Bilingual papers: transcribe the Hindi column for the solution text, keep the English
-   technical terms — e.g. `लाभ प्रतिशत (profit %)`, `द्रव्यमान संरक्षण (law of conservation of mass)`.
-4. Option (E) is usually "अनुत्तरित प्रश्न / Question not attempted" — note it once in
-   `meta.exam_details`, and keep each question's own (E) line in the verbatim text.
-5. Words broken by the scan: crop + re-OCR, do not guess silently.
-   ```bash
-   pdftoppm -f 28 -l 28 -r 400 -png paper.pdf /tmp/paper/hi28
-   python3 - <<'PY'
-   from PIL import Image
-   im = Image.open('/tmp/paper/hi28-28.png'); w, h = im.size
-   im.crop((int(w*0.50), int(h*0.030), int(w*0.66), int(h*0.058))).resize((1500, 360)).save('/tmp/paper/crops/word.png')
-   PY
-   tesseract /tmp/paper/crops/word.png stdout -l hin --psm 6
-   ```
-   If it stays ambiguous, write the reading in `[ ]` in the verbatim line and explain
-   the ambiguity inside the question's `नोट` callout.
+- **Auto-compaction.** A large multi-image call pushes the session over the compaction threshold;
+  the harness then summarises older turns, and the transcription you just did is gone.
+- **Attribution loss.** A wrong number cannot be traced to a page, and a retry means re-reading
+  everything again.
 
-## B. Section split
+Per-page reads give: a page number attached to every extracted value, a retry that costs one page,
+and a notes file that survives compaction. (This is the same conclusion the multimodal-input
+literature reaches: "use one call per image for everything else, because the token cost is the same
+either way" — https://sameralqaisi.me/ai-programming/core-llm-integration/multimodal-input-images-audio-and-documents)
 
-Choose ranges so each question 1..N is covered **exactly once**, and so that a question
-never straddles two part files. Verify the page → question mapping from the footer
-(`Page: 12`) plus the text dump:
+## B. The transcription loop
 
-```bash
-grep -n "Page: 1[2-4]" /tmp/paper/text-dump.txt | head
+```
+for page N in 1..total:
+    read /tmp/paper/pages/p-NN.png        # ONE image, one tool call
+    append to /tmp/paper/notes.md:
+        ## Page N (printed "Page: N+1")
+        Qxx. <verbatim Hindi text>  (A) … (B) … (C) … (D) … (E) अनुत्तरित प्रश्न
+        Qxy. …
 ```
 
-If a question's stem is on page X and its options on page X+1 (common for multi-statement
-questions), assign the whole question to the section that holds the **options**, and give
-that subagent both page images.
+Per page, also record:
+- the printed footer (`Page: 12`) so the PDF-page ↔ paper-page map stays explicit;
+- any question whose **stem** starts on this page but whose options continue overleaf — you will
+  complete the options when you reach the next page (no extra read);
+- the running counter: it must climb by the number of question-number lines you saw. A jump means
+  the previous page's tail still holds questions — transcribe them while it is still in front of you.
 
-Watch for pages that do **not** belong to the assumed subject order (a science page
-sandwiched between maths pages, a stray reasoning question inside a science range). Tell the
-subagent explicitly which pages to read and note the anomaly in the run log.
+Discipline that saves the most time:
+- Take the note **before** the next read. Never "I'll note it later".
+- Unreadable word → `[?]` in the text, or a 400-dpi crop of just that region (see SKILL.md step 2).
+- Do not solve while transcribing. A quick provisional answer in the margin is fine (`=> (C)?`),
+  but the full solution is written in step 4 from the notes, never from the image.
 
-## C. Subagent prompt template (one per section, launched in parallel)
+## C. The bank (`notes.md`) and its check
 
-````text
-You are writing part of a Hindi-language solutions document for a scanned
-<exam name> question paper.
+`notes.md` is the whole paper in text form. Before solving:
 
-TASK: Read the page images <p-XX.png paths, comma separated> (one or two at a time with
-the `read` tool, do NOT read all at once). They contain questions <Q_from>–<Q_to>
-(<topics>).
+```bash
+python3 scripts/bank_check.py /tmp/paper/notes.md 120
+```
 
-For EVERY question <Q_from> through <Q_to>, write a detailed Hindi solution into
-<workdir>/parts/<part_file>.md (create/overwrite it). Do not skip any question.
+```
+page  1 (printed   2): Q1–Q3            (3)
+page  2 (printed   3): Q4–Q5            (2)
+…
+BANK: 120/120 · missing: none · duplicates: none
+```
 
-THE VERIFIED ANSWER KEY (already computed — your solutions MUST agree with it):
-<Q48 (C) 600 | Q49 (A) 30 | …>
+If something is missing, fix `notes.md` (or crop that one region) — the page images are a last
+resort, only for the single page that needs it, and only once.
 
-RULES:
-1. Before writing any file you MUST perform at least one web search/fetch in this same
-   turn — a global research-first gate blocks file writes until the turn has a lookup.
-2. Verify every historical/GK/current-affairs fact against genuine sources (official
-   portals, PIB, university/organiser sites, Transparency International, UNESCO, then
-   Drishti/Testbook/Wikipedia) and cite the source domain in parentheses after the fact.
-3. Maths/reasoning questions: solve, then RE-VERIFY with a SECOND, DIFFERENT method
-   (equation ↔ unitary, formula ↔ back-substitution, forward rule ↔ reverse
-   back-calculation). Show both, labelled "व्याख्या (विधि 1)" and
-   "> [!tip] सत्यापन (विधि 2)".
-4. Output language: Hindi, keeping English technical terms in parentheses.
-5. Never invent question text. Transcribe faithfully from the image; if a word is
-   unclear, put your best reading in [ ].
+Bank entry format the checker understands (either works):
 
-EXACT FORMAT PER QUESTION (this file is assembled into an Obsidian note):
+```
+Q17. <text>
+17. <text>
+प्रश्न 17. <text>
+```
 
-## प्रश्न N
-**प्रश्न:** <full question text with all options (A) … (E) …>
+## D. Solving from the bank
 
-**उत्तर: (X) <answer text>**
+Write `parts/part_01.md`, `part_02.md`, … in bank order, ~15–20 questions per file:
+
+```
+## प्रश्न 17
+**प्रश्न:** <verbatim from the bank + all options>
+
+**उत्तर: (B) <answer>**
 
 **व्याख्या:**
-- <bullets with reasoning + source domain>
+- <reasoning; GK facts cite a source domain in parentheses>
 
 **अन्य विकल्प क्यों गलत:**
-- **(A)** — <why wrong>
-
-Start the file with `# विस्तृत हल (प्रश्न <from>–<to>) — <topic>` then `---`, then the
-questions in order.
-
-ALSO append one line per question to <workdir>/ans.txt in the form `48 C` (append with >>,
-never overwrite).
-
-When done, reply with the list question number -> option letter, and flag any question
-whose printed text you could not read or whose answer you are unsure about.
-````
-
-Notes:
-- Pass the already-solved key so parallel workers cannot drift from your own answers.
-- Ask for the flag list — that list becomes the "low-confidence questions" bullet in the
-  closing note. Never discard it.
-- `## प्रश्न N` (not `###`) is what the workers write; `assemble.py` demotes headings and
-  rebuilds the key table from these files, so the part files are the single source of truth.
-- After the workers finish, spot-check anything they flagged (`Q3`, `Q8`, `Q19`, `Q23` in the
-  reference run) with your own lookup before assembling.
-
-## D. Assembly order
-
-```bash
-python3 scripts/assemble.py /tmp/paper/meta.json      # parts + meta -> Obsidian note (+ .bak.txt)
-python3 scripts/validate.py "$OUTPUT" 120             # must print PASS
+- **(A)** — …
 ```
 
-`assemble.py` re-derives the answer key by parsing each `## प्रश्न N` block, so the table
-can never disagree with the body text.
+- GK/current-affairs: one web lookup per fact, official sources first, cite the domain.
+- Maths/reasoning: `**व्याख्या (विधि 1):**` then `**सत्यापन (विधि 2):**` with a genuinely
+  different second method, not the same arithmetic re-worded.
+- Grammar: name the rule, then apply it to the options.
+- The part files are the single source of truth for the answer key — `assemble.py` re-parses them,
+  so the key table can never disagree with the body text.
+
+## E. Assembly order
+
+```bash
+python3 scripts/bank_check.py /tmp/paper/notes.md <total>    # 1. bank complete?
+python3 scripts/assemble.py /tmp/paper/meta.json            # 2. parts + meta -> Obsidian note
+python3 scripts/validate.py "$OUTPUT" <total>                # 3. must print PASS
+```
+
+`meta.sections` maps one part file per section, and `skip` can drop a question that a section
+deliberately does not cover.

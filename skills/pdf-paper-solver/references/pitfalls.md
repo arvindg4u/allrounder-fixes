@@ -1,7 +1,10 @@
 # Pitfalls — hard-won, in the order they bite
 
+The workflow this file guards: **read one page → note that page immediately → finish the whole
+paper → check the bank → only then solve.** Every pitfall below is a way that order gets broken.
+
 ## 1. The PDF's text layer is a trap (Adobe Scan)
-`pdftotext -layout` on a scanned paper returns `F-'ki~R!.a i't` for `प्रश्न 1. राणा सांगा…`.
+`pdftotext -layout` on a scanned paper returns `F-'ki~R!.a i't` for `प्रश्न 1. राणा सांगा...`.
 Some papers are text-native and extract perfectly — check first:
 ```bash
 pdftotext -layout paper.pdf /tmp/paper/text-dump.txt
@@ -9,87 +12,104 @@ head -c 400 /tmp/paper/text-dump.txt     # readable prose? -> you may solve from
 grep -c 'राणा\|प्रश्न' /tmp/paper/text-dump.txt
 ```
 If garbled: images are authoritative, the dump is only a locator (question numbers, page
-footers like `Page: 12`, `Help : 8290645748`).
+footers like `Page: 12`, `Help : 8290645748`). A 37-page scan can extract to **0 bytes** —
+then the dump gives you nothing at all, not even numbering, and you must reconcile numbering
+from the page footers as you go.
 
-## 2. Context blow-up from bulk page reads
-Reading 10+ page images in one call → auto-compaction → earlier transcriptions vanish.
-Read 1–2 at a time and persist to `notes.md` after every batch. If compaction happens,
-`notes.md` + the part files are the recovery source, so update them eagerly.
+## 2. Reading several page images in one call (the worst one)
+Two page images in one tool call is already a mistake; ten is a session-killer:
+- **auto-compaction** summarises away the transcriptions you just made, silently;
+- a wrong number can no longer be traced to a page;
+- a retry costs the whole batch instead of one page.
 
-## 3. Workers writing answers from memory
-Without a source domain, an answer is unverifiable. Require citations, and re-check any
-item the worker flags. The research-first gate also means **each worker needs its own
-lookup before it can write** — put that instruction in the prompt or the worker stalls.
+Cost is per pixel, not per call, so batching saves nothing:
+`detail=high` ≈ 85 + 170 tokens per 512×512 tile → a 150-dpi page is roughly 700–1,500 tokens
+either way. **One image per tool call, in page order, and append to `notes.md` before the next
+read.** The notes file — not the context window — is the durable store.
 
-## 4. Drifting answer key
-Keeping answers in a separate `ans.txt` and the text in part files lets the two disagree
-(one run lost Q17 and Q48–67 from `ans.txt` because two workers wrote concurrently).
-Fix: `assemble.py` parses answers from the part files and the validator compares
-key-table letters against the `[!success]` callout letters. Both must match.
+## 3. Reading a page a second time
+Symptom: "I need to check whether Q37 option (C) said *X* or *Y*", so the page gets re-opened —
+and now every question that page holds is paid for twice, plus the context churn.
+Fix at the moment of first read:
+- transcribe the **whole** page, including options you think are boring;
+- an unreadable word → `[?]` in the bank, or a 400-dpi crop of just that region (below);
+- never leave the page without its note written.
 
-## 5. Renaming headings after the TOC is generated
-`[[#प्रश्न 48]]` and `[[#विस्तृत हल (प्रश्न 48–67) — गणित]]` resolve by exact heading text.
-Renaming or "tidying" a heading silently breaks the links. Run `validate.py`; it fails on
-broken TOC and key links.
-
-## 6. Misprints in the paper (keep the answer, expose the flaw)
-Real examples from the reference run:
-- `शोल्डर (Shoulder)` printed where `सोल्डर (solder)` was meant — answer still (C) because
-  solder = Pb + Sn.
-- A question with two valid विसर्ग-संधि options (`निष्ठुर` and `मनोयोग`) → mark the
-  question technically flawed, state the conventional key, explain both sides.
-- Duplicate/derailed options in a passive-voice question → note the printing defect.
-- A statement whose district list is incomplete (isobars) → the incomplete statement is the
-  "false" one; justify by proving the other three true (elimination logic).
-Put the explanation inside the question (often as a `> [!note]` callout) **and** in the
-closing note's low-confidence list.
-
-## 7. Wrong subject order across pages
-Never assume pages follow the subject order of the section split. One run found the science
-stems `Q71–Q74` on the page assumed to be maths/reasoning. Read the page footer
-(`Page: 20`) and the neighbouring images; if a range is misassigned, fix the meta
-`sections[].skip` list rather than editing two part files by hand.
-
-## 8. Duplicate coverage / gaps at section boundaries
-Symptoms: the same question answered twice, or a question with no entry. Detect early with
-`grep -oE '^## प्रश्न [0-9]+' parts/*.md | sort -u | wc -l` and compare against the paper's
-total. Use `sections[].skip` for a deliberate duplicate, and `validate.py` for gaps.
-
-## 9. Bilingual numbering mismatch
-Hindi and English columns print the same number; when a page's Hindi column continues onto
-the next page while the English one does not, transcribe from the column that is complete,
-and keep question numbers from the printed number, not from reading order.
-
-## 10. Reporting honestly
-The final report must state `filled/total`, list the flagged questions, and name the source
-domains used. Do not claim "100% verified" if any item was answered by elimination or is
-marked as a printing defect.
-
-## 11. Workers write the "why other options are wrong" block inline
-A worker may emit `**अन्य विकल्प क्यों गलत:** (B) ... (C) ...` on a single line, or omit the
-block entirely; the assembler then leaves it as plain prose and the folded callout silently
-disappears (23 of 120 questions in the second run). Ask explicitly for a **standalone
-heading + one bullet per option**, then verify the count:
+Crop-and-OCR instead of re-reading (Tesseract: `--psm 6` for a block, `--psm 7` for one line,
+≥300 dpi, ~10 px white border — `tesseractocr.org/doc`, `github.com/tesseract-ocr/tessdoc`):
 ```bash
-grep -c '^> \[!warning\]' "$OUTPUT"     # should be close to total_questions
+pdftoppm -f 28 -l 28 -r 400 -png "paper.pdf" /tmp/paper/crops/hi28
+python3 -c "from PIL import Image; im=Image.open('/tmp/paper/crops/hi28-28.png'); w,h=im.size; im.crop((int(w*0.05),int(h*0.20),int(w*0.52),int(h*0.26))).resize((1600,600)).save('/tmp/paper/crops/w.png')"
+tesseract /tmp/paper/crops/w.png stdout -l hin --psm 6
 ```
-Fix detected gaps by sending the *same* worker a follow-up (its context still holds the
-questions) instead of re-reading page images yourself.
+
+## 4. Solving before the bank is complete
+If you start answering at Q1 while pages 12–37 are still unread, every later question tempts you
+back into an image. The bank makes the solve step **image-free**: text in, text out.
+Gate it:
+```bash
+python3 scripts/bank_check.py /tmp/paper/notes.md 120   # must say BANK OK
+```
+
+## 5. Questions that straddle a page boundary
+Real case: printed Page 13 ended at Q30, Page 14 started at Q34 — Q31–33 sat at the bottom of
+Page 13 and were skipped, and the gap was only noticed much later. Because you are holding the
+page, the fix costs nothing **at that moment**: transcribe the tail before moving on, and keep a
+running counter. `bank_check.py` catches what you miss, but catching it in the pass is free.
+
+Also: a question whose stem is on one page and whose options continue overleaf is completed when
+you reach the next page — still one read, no going back.
+
+## 6. Letting a subagent do part of the paper
+Delegation splits the images away from the note file: the worker holds the page, the main session
+holds the bank, and neither can finish alone. It reliably produces duplicate coverage, boundary
+gaps, and questions transcribed twice from the same page. **Do the paper yourself, in one
+session.** Long papers are handled by *time*, not by parallelism.
+
+## 7. Answering GK / current affairs from memory
+Without a source domain an answer is unverifiable, and recall is exactly what goes stale first
+(a 2026 paper asks about 2026 events). Verify every fact and cite the domain in parentheses:
+official first (PIB, `.gov.in`, organiser/university sites, NITI Aayog, MoEFCC, NTCA), then
+exam-authoritative (Drishti, Testbook, RajRAS, Wikipedia). Anything unverifiable stays flagged as
+low-confidence rather than quietly asserted.
+
+## 8. Drifting answer key
+Keeping answers in a separate `ans.txt` and the text in part files lets the two disagree.
+Fix: `assemble.py` parses answers **from the part files**, and `validate.py` compares the
+key-table letters against each `[!success]` callout. Never key the table from a second list.
+
+## 9. Renaming headings after the TOC is generated
+`[[#प्रश्न 48]]` and `[[#विस्तृत हल (प्रश्न 48–67) — गणित]]` resolve by exact heading text.
+Renaming or "tidying" a heading silently breaks the links. Run `validate.py`; it fails on broken
+TOC and key links.
+
+## 10. Misprints in the paper (keep the answer, expose the flaw)
+Real examples:
+- `शोल्डर (Shoulder)` printed where `सोल्डर (solder)` was meant — answer still (C), solder = Pb + Sn.
+- A question with two valid विसर्ग-संधि options (`निष्ठुर`, `मनोयोग`) → mark the question flawed,
+  state the conventional key, explain both sides.
+- "Slide Shorter" printed for **Slide Sorter**; "जीटा टाउन" for **JITO Town**; a district score
+  printed as 57.82 when the official figure is 51.82.
+Put the explanation inside the question (often `> [!note]`) **and** in the closing note's
+low-confidence list.
+
+## 11. The "why other options are wrong" block written inline
+A single line `**अन्य विकल्प क्यों गलत:** (B) ... (C) ...` is not a block: the assembler leaves it
+as prose and the folded callout silently disappears (23 of 120 questions in one run). Write a
+**standalone heading + one bullet per option**, then verify:
+```bash
+grep -c '^> \[!warning\]-' "$OUTPUT"     # should be close to total_questions
+```
+Gaps are fixed by editing the part file from the bank — no page reads needed.
 
 ## 12. Never hardcode the callout phrases in the assembler
-Every worker words headings differently (`सत्यापन (विधि 2) — मिश्रण नियम से`,
-`अन्य विकल्प क्यों सही हैं`, `दूसरी विधि …`, `पुनः जाँच …`). Match **any bold-only heading**
-and classify it from phrase hints:
-- `गलत | असंगत | बेमेल | असत्य | त्रुटि` (but not `गलत नहीं`) -> folded `warning`
-- `सत्यापन | जाँच | विधि 2 | दूसरी विधि | वैकल्पिक विधि` -> visible `tip`
-- `अन्य विकल्प … क्यों सही` -> `tip` (green), not a red warning
+Headings get worded differently (`सत्यापन (विधि 2) — मिश्रण नियम से`, `अन्य विकल्प क्यों सही हैं`,
+`दूसरी विधि ...`, `पुनः जाँच ...`). Match **any bold-only heading** and classify from phrase hints:
+- `गलत | असंगत | बेमेल | असत्य | त्रुटि` (but not `गलत नहीं`) → folded `warning`
+- `सत्यापन | जाँच | विधि 2 | दूसरी विधि | वैकल्पिक विधि` → visible `tip`
+- `अन्य विकल्प ... क्यों सही` → `tip` (green), not a red warning
 
-A hardcoded prefix list silently leaves half the headings unformatted.
-
-## 13. Questions that straddle a page boundary belong to the page where the number is printed
-In the second run, Q31-Q33 sat at the bottom of printed Page 13 while the next worker started
-at Q34 on Page 14; the first worker had stopped at Q30 and assumed Page 13 held no new
-question, leaving a silent 3-question gap. `validate.py` reports gaps, but the fastest fix is
-a follow-up to the worker that owns that page range: ask it to re-read the last page of its
-range and the first page of the next one, then emit the missing questions into an extra part
-file (`part_02b.md`) wired into `meta.sections`.
+## 13. Reporting honestly
+The final report must state `filled/total`, list the flagged questions, and name the source
+domains used. Do not claim "100% verified" if any item was answered by elimination or is marked
+as a printing defect.

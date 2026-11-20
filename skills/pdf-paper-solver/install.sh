@@ -33,7 +33,7 @@ run rm -rf "$skill_dst"
 run mkdir -p "$skill_dst"
 run cp -R "$src/SKILL.md" "$src/scripts" "$src/references" "$src/command" "$src/examples" "$skill_dst/"
 run cp "$src/command/solve-paper.md" "$cmd_dst"
-run chmod +x "$skill_dst/scripts/render_pages.sh"
+run chmod +x "$skill_dst/scripts/render_pages.sh" "$skill_dst/scripts/bank_check.py"
 
 echo
 echo "installed:"
