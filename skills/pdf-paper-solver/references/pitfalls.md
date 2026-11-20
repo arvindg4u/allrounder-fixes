@@ -64,3 +64,32 @@ and keep question numbers from the printed number, not from reading order.
 The final report must state `filled/total`, list the flagged questions, and name the source
 domains used. Do not claim "100% verified" if any item was answered by elimination or is
 marked as a printing defect.
+
+## 11. Workers write the "why other options are wrong" block inline
+A worker may emit `**अन्य विकल्प क्यों गलत:** (B) ... (C) ...` on a single line, or omit the
+block entirely; the assembler then leaves it as plain prose and the folded callout silently
+disappears (23 of 120 questions in the second run). Ask explicitly for a **standalone
+heading + one bullet per option**, then verify the count:
+```bash
+grep -c '^> \[!warning\]' "$OUTPUT"     # should be close to total_questions
+```
+Fix detected gaps by sending the *same* worker a follow-up (its context still holds the
+questions) instead of re-reading page images yourself.
+
+## 12. Never hardcode the callout phrases in the assembler
+Every worker words headings differently (`सत्यापन (विधि 2) — मिश्रण नियम से`,
+`अन्य विकल्प क्यों सही हैं`, `दूसरी विधि …`, `पुनः जाँच …`). Match **any bold-only heading**
+and classify it from phrase hints:
+- `गलत | असंगत | बेमेल | असत्य | त्रुटि` (but not `गलत नहीं`) -> folded `warning`
+- `सत्यापन | जाँच | विधि 2 | दूसरी विधि | वैकल्पिक विधि` -> visible `tip`
+- `अन्य विकल्प … क्यों सही` -> `tip` (green), not a red warning
+
+A hardcoded prefix list silently leaves half the headings unformatted.
+
+## 13. Questions that straddle a page boundary belong to the page where the number is printed
+In the second run, Q31-Q33 sat at the bottom of printed Page 13 while the next worker started
+at Q34 on Page 14; the first worker had stopped at Q30 and assumed Page 13 held no new
+question, leaving a silent 3-question gap. `validate.py` reports gaps, but the fastest fix is
+a follow-up to the worker that owns that page range: ask it to re-read the last page of its
+range and the first page of the next one, then emit the missing questions into an extra part
+file (`part_02b.md`) wired into `meta.sections`.

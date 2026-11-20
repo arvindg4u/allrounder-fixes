@@ -16,11 +16,30 @@ import sys
 # ----------------------------------------------------------------- tag / label helpers
 ANSWER_RE = re.compile(r"^\*\*उत्तर:?\s*\(?([A-E])\)?")
 Q_HEAD_RE = re.compile(r"^## प्रश्न (\d+)")
-BULLET_BLOCK_RE = re.compile(
-    r"^\*\*((?:अन्य विकल्प|दूसरी विधि|सत्यापन|पुनः जाँच|वैकल्पिक विधि|तार्किक सत्यापन)[^*]*?)\*\*\s*:?\s*$"
-)
+# any bold-only line, e.g. "**अन्य विकल्प क्यों गलत:**" / "**सत्यापन (विधि 2) — …:**"
+BOLD_ONLY_RE = re.compile(r"^\*\*([^*]+)\*\*\s*:?\s*$")
+# phrase hints decide the callout type (workers word these headings differently)
+WRONG_HINT = re.compile(r"गलत|ग़लत|असंगत|बेमेल|असत्य|त्रुटि")
+VERIFY_HINT = re.compile(r"सत्यापन|पुनः जाँच|जाँच|विधि\s*-?2|दूसरी विधि|वैकल्पिक विधि|तार्किक|सुमेलन जाँच")
+ALT_HINT = re.compile(r"^(?:अन्य विकल्प|विकल्पों?)")
+NOT_WRONG = re.compile(r"गलत नहीं")
 NOTE_RE = re.compile(r"^> \*\*(नोट|परीक्षा-नोट|ध्यान दें|चेतावनी):?\*\*:?\s*(.*)$")
-WRONG_HINT = re.compile(r"अन्य विकल्प")
+
+
+def is_callout_header(line):
+    """True when a bold-only heading should become a callout."""
+    m = BOLD_ONLY_RE.match(line)
+    if not m:
+        return False
+    title = m.group(1)
+    return bool(WRONG_HINT.search(title) or VERIFY_HINT.search(title) or ALT_HINT.search(title))
+
+
+def starts_bullets(lines, i):
+    """True when a bullet run (optionally after one blank line) starts at index i."""
+    if i < len(lines) and lines[i].startswith(("- ", "  - ")):
+        return True
+    return i + 1 < len(lines) and lines[i].strip() == "" and lines[i + 1].startswith(("- ", "  - "))
 
 
 def render_note(lines, i):
@@ -55,9 +74,10 @@ def split_pre_blocks(lines):
 def bullet_callout(lines, start, folded):
     """Consume the bullet run starting at `start`; return (rendered lines, next index)."""
     head_raw = lines[start]
-    m = BULLET_BLOCK_RE.match(head_raw)
+    m = BOLD_ONLY_RE.match(head_raw)
     title = m.group(1).strip().rstrip(":").strip() if m else "विवरण"
-    ctype = "warning" if (folded or WRONG_HINT.search(title)) else "tip"
+    is_wrong = bool(WRONG_HINT.search(title)) and not NOT_WRONG.search(title)
+    ctype = "warning" if (folded or is_wrong) else "tip"
     body, i = [], start + 1
     while i < len(lines):
         l = lines[i]
@@ -91,7 +111,7 @@ def transform_block(num, lines, skip):
             out.append(f"> [!success] उत्तर: ({letter})" + (f" {rest}" if rest else ""))
             i += 1
             continue
-        if BULLET_BLOCK_RE.match(line):
+        if is_callout_header(line) and starts_bullets(lines, i + 1):
             rendered, i = bullet_callout(lines, i, folded=False)
             out.extend(rendered)
             continue

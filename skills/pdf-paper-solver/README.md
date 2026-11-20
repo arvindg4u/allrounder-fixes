@@ -67,11 +67,13 @@ or just upload a paper PDF and ask to solve it — the skill description matches
 
 ## Examples
 
-`examples/CET_12th_9Aug_Solutions_Hindi.md` — a 120-question Rajasthan CET (12th level) paper,
-solved from a 29-page scanned PDF: sections for history/geography, art & current affairs,
-maths (each answer shown with a second verification method), chemistry/economy/computer,
-polity/computer, and sandhi-samas + English grammar.
-`examples/CET_12th_9Aug_Solutions_Hindi.plain.txt` — the same note with Obsidian syntax
-stripped, as produced by `assemble.py`.
+Two full 120-question papers, both solved from scanned PDFs (no usable text layer):
+
+| Example | Source | Highlights |
+|---|---|---|
+| `examples/CET_12th_9Aug_Solutions_Hindi.md` (+ `.plain.txt`) | 29-page scan | history/GK, art & current affairs, maths (two-method), chemistry/economy/computer, polity/computer, sandhi-samas + English grammar |
+| `examples/CET_12th_16Aug_Solutions_Hindi.md` (+ `.plain.txt`) | 37-page scan | 1857 revolution + saints, lok-devtas, forests, President/PM & current affairs, chemistry + simple interest, environment/computer, English narration |
+
+Each `.plain.txt` is the same note with Obsidian syntax stripped, as produced by `assemble.py`.
 
 The source PDF itself is not included.
